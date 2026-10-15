@@ -12,7 +12,7 @@ import { postWebhook, validateWebhookUrl } from './safe-http';
 import { signatureHeader } from './webhook-signature';
 
 /** While BullMQ owns a retry, the outbox relay must not hand the row over again. */
-const RETRY_OWNED_BY_QUEUE_MS = 2 * 3_600_000;
+const RETRY_OWNED_BY_QUEUE_MS = 12 * 3_600_000;
 
 /**
  * Delivers one event to one customer endpoint. At-least-once: the same event id and byte-identical body are

@@ -35,7 +35,7 @@ export const QUEUE_OPTIONS: Record<QueueName, { attempts: number; backoffMs: num
   'reservation-sync': { attempts: 8, backoffMs: 30_000, concurrency: 5 },
   notification: { attempts: 5, backoffMs: 30_000, concurrency: 10 },
   payment: { attempts: 6, backoffMs: 20_000, concurrency: 5 },
-  'client-webhook': { attempts: 8, backoffMs: 30_000, concurrency: 10 },
+  'client-webhook': { attempts: 12, backoffMs: 30_000, concurrency: 10 },
 };
 
 export function queueForSyncType(type: SyncJobType): QueueName {

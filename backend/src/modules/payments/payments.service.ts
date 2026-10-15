@@ -16,6 +16,7 @@ import { DomainError, DomainValidationError, NotFoundError, UnauthorizedError } 
 import { Models, getModels } from '../../database/models';
 import type { Payment, Refund } from '../../database/schemas/payment.schema';
 import type { Reservation } from '../../database/schemas/reservation.schema';
+import { ClientEventService } from '../../database/services/client-event.service';
 import { ReservationService } from '../../database/services/reservation.service';
 import { WebhookService } from '../../database/services/webhook.service';
 import { JobContext, isFinalAttempt, isRetryable, nonRetryable } from '../../jobs/job-handler';
@@ -53,6 +54,7 @@ export class PaymentsService {
     private readonly webhooks: WebhookService,
     private readonly outbox: OutboxDispatcher,
     private readonly audit: AuditLogger,
+    private readonly clientEvents: ClientEventService,
   ) {
     this.m = getModels(connection);
   }
@@ -181,7 +183,14 @@ export class PaymentsService {
     if (!payment) return;
     // Alertable event: count of these per hour is the payment-failure rate (no guest data in it).
     this.logger.warn({ event: 'payment_failed', paymentId: String(payment._id), reservationId: String(payment.reservationId), amount: payment.amount, reason: reason.slice(0, 120) });
-    const r = await this.m.Reservation.findById(payment.reservationId, { guest: 1, reservationCode: 1, propertyId: 1 }).lean();
+    const r = await this.m.Reservation.findById(payment.reservationId).lean();
+    const property = r && (await this.m.Property.findById(r.propertyId, { organizationId: 1, slug: 1, name: 1 }).lean());
+    if (r && property) {
+      await this.clientEvents
+        .emit(null, { type: 'payment.failed', property, reservation: r, discriminator: String(payment._id), extra: { payment: { amount: payment.amount, currency: payment.currency, reason: reason.slice(0, 200) } } })
+        .catch((err) => this.logger.error(`client event payment.failed not recorded: ${(err as Error).message}`));
+      void this.outbox.flush();
+    }
     if (r?.guest.email) {
       await this.m.Notification.create({
         propertyId: r.propertyId,

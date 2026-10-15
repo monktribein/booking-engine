@@ -123,7 +123,7 @@ export const WebhookDeliverySchema = new Schema<WebhookDelivery>(
     body: { type: String, required: true, maxlength: 200_000 },
     status: enumOf(WebhookDeliveryStatus, true, WebhookDeliveryStatus.PENDING),
     attempts: { ...count(), default: 0 },
-    maxAttempts: { ...count(true, 1), max: 50, default: 8 },
+    maxAttempts: { ...count(true, 1), max: 50, default: 12 },
     lockedUntil: { type: Date, default: null },
     enqueuedAt: { type: Date, default: null },
     lastStatusCode: { type: Number },

@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import type { AppConfig } from '../config/configuration';
+import { buildPublicApiDocument } from './public-api-document';
 import { DomainValidationError } from '../database/errors';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './interceptors/response-envelope.interceptor';
@@ -66,9 +67,11 @@ export function configureApp(app: NestExpressApplication): void {
       )
       .setVersion('1.0')
       .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'API key (tvk_...)' }, 'api-key')
       .build();
-    SwaggerModule.setup('docs', app, () => SwaggerModule.createDocument(app, doc), {
-      jsonDocumentUrl: 'docs/openapi.json',
-    });
+    const full = () => SwaggerModule.createDocument(app, doc);
+    SwaggerModule.setup('docs', app, full, { jsonDocumentUrl: 'docs/openapi.json' });
+    // The stable, versioned contract for external integrators: only /v1 (plus the public payment confirmation call).
+    SwaggerModule.setup('docs/v1', app, () => buildPublicApiDocument(full()), { jsonDocumentUrl: 'docs/v1/openapi.json' });
   }
 }

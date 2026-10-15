@@ -65,7 +65,7 @@ export class ClientEventService {
       endpoints.map((e) => ({
         updateOne: {
           filter: { endpointId: e._id, eventId },
-          update: { $setOnInsert: { organizationId: property.organizationId, endpointId: e._id, eventId, eventType: input.type, body, status: WebhookDeliveryStatus.PENDING, attempts: 0, maxAttempts: 8, lockedUntil: null, enqueuedAt: null } },
+          update: { $setOnInsert: { organizationId: property.organizationId, endpointId: e._id, eventId, eventType: input.type, body, status: WebhookDeliveryStatus.PENDING, attempts: 0, maxAttempts: 12, lockedUntil: null, enqueuedAt: null } },
           upsert: true,
         },
       })),
