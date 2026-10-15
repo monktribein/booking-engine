@@ -2,7 +2,7 @@ import { validateEnv } from './env.validation';
 
 const good = {
   NODE_ENV: 'production',
-  MONGODB_URI: 'mongodb://mongo:27017/?replicaSet=rs0',
+  DATABASE_URL: 'postgresql://postgres.abcd:pw@aws-0-eu.pooler.supabase.com:6543/postgres',
   JWT_SECRET: 'a'.repeat(40),
   JWT_REFRESH_SECRET: 'b'.repeat(40),
   ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
@@ -26,7 +26,7 @@ describe('validateEnv (production fail-fast)', () => {
     expect(errorsOf(good)).toEqual([]);
   });
 
-  it.each(['MONGODB_URI', 'JWT_SECRET', 'JWT_REFRESH_SECRET', 'ENCRYPTION_KEY', 'REDIS_URL', 'CORS_ORIGINS', 'RAZORPAY_KEY_ID', 'RAZORPAY_WEBHOOK_SECRET'])('rejects production without %s', (key) => {
+  it.each(['DATABASE_URL', 'JWT_SECRET', 'JWT_REFRESH_SECRET', 'ENCRYPTION_KEY', 'REDIS_URL', 'CORS_ORIGINS', 'RAZORPAY_KEY_ID', 'RAZORPAY_WEBHOOK_SECRET'])('rejects production without %s', (key) => {
     const env: Record<string, unknown> = { ...good };
     delete env[key];
     if (key === 'RAZORPAY_KEY_ID') delete env.RAZORPAY_KEY_SECRET;
@@ -43,6 +43,15 @@ describe('validateEnv (production fail-fast)', () => {
   it('refuses to confirm unpaid public bookings in production unless explicitly allowed', () => {
     expect(errorsOf({ ...good, BOOKING_ENGINE_REQUIRE_PAYMENT: 'false' }).join()).toMatch(/ALLOW_PAY_AT_PROPERTY/);
     expect(errorsOf({ ...good, BOOKING_ENGINE_REQUIRE_PAYMENT: 'false', ALLOW_PAY_AT_PROPERTY: 'true' })).toEqual([]);
+  });
+
+  it('validates the database settings', () => {
+    expect(errorsOf({ ...good, DATABASE_URL: 'mongodb://localhost/x' }).join()).toMatch(/must start with postgresql/);
+    expect(errorsOf({ ...good, DATABASE_URL: 'postgresql://postgres:[YOUR-PASSWORD]@db.x.supabase.co:5432/postgres' }).join()).toMatch(/placeholder/);
+    expect(errorsOf({ ...good, DATABASE_SSL: 'disable' }).join()).toMatch(/not allowed in production/);
+    expect(errorsOf({ ...good, DATABASE_SSL: 'verify-full' }).join()).toMatch(/DATABASE_CA_CERT/);
+    expect(errorsOf({ ...good, DATABASE_SSL: 'verify-full', DATABASE_CA_CERT: '/etc/ssl/supabase.crt' })).toEqual([]);
+    expect(errorsOf({ ...good, DATABASE_POOL_MAX: '0' }).join()).toMatch(/positive integer/);
   });
 
   it('weak or identical secrets are rejected', () => {

@@ -6,7 +6,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
-  IsMongoId,
+  IsUUID,
   IsNumber,
   IsOptional,
   IsString,
@@ -18,7 +18,7 @@ import { ChannelConnectionStatus, MarkupType } from '../../database/enums';
 
 export class RateMappingInputDto {
   @ApiProperty({ example: 'MOCK-ROOM-DLX-FLEX' }) @IsString() @Length(1, 100) externalRatePlanId!: string;
-  @ApiProperty() @IsMongoId() ratePlanId!: string;
+  @ApiProperty() @IsUUID() ratePlanId!: string;
   @ApiPropertyOptional({ enum: MarkupType, default: MarkupType.NONE }) @IsOptional() @IsEnum(MarkupType) markupType?: MarkupType;
   @ApiPropertyOptional({ description: 'Percent for PERCENTAGE, minor units for FIXED' }) @IsOptional() @IsNumber() markupValue?: number;
 }
@@ -31,7 +31,7 @@ export class MappingInputDto {
   @IsString()
   @Length(1, 100)
   externalRoomId?: string | null;
-  @ApiProperty({ description: 'Tirvona room type this listing/room sells' }) @IsMongoId() roomTypeId!: string;
+  @ApiProperty({ description: 'Tirvona room type this listing/room sells' }) @IsUUID() roomTypeId!: string;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() syncAvailability?: boolean;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() syncRates?: boolean;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() syncRestrictions?: boolean;

@@ -1,14 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { randomBytes } from 'node:crypto';
-import { Connection, Types } from 'mongoose';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { hashPassword } from '../../database/common/crypto';
-import { isDuplicateKeyError } from '../../database/common/schema-helpers';
+import type { User } from '../../database/db-types';
 import { PropertyUserRole, UserStatus } from '../../database/enums';
 import { ConflictError, DomainValidationError, NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { User } from '../../database/schemas/identity.schema';
+import { Db, InjectDb, isUniqueViolation, runInTransaction } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
 import type { AddStaffDto, UpdateMeDto } from './dto/user.dto';
 import { PasswordResetService } from './password-reset.service';
@@ -20,99 +17,90 @@ export function toPublicUser(u: User | PublicUser): PublicUser {
   return rest;
 }
 
+/** Every user column except the password hash. */
+export const PUBLIC_USER_COLUMNS = ['id', 'organizationId', 'name', 'email', 'phone', 'role', 'status', 'lastLoginAt', 'createdAt', 'updatedAt'] as const;
+
 @Injectable()
 export class UsersService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly resets: PasswordResetService,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
-  async me(userId: Types.ObjectId): Promise<PublicUser> {
-    const u = await this.m.User.findById(userId).lean();
+  async me(userId: string): Promise<PublicUser> {
+    const u = await this.db.selectFrom('users').select(PUBLIC_USER_COLUMNS).where('id', '=', userId).executeTakeFirst();
     if (!u) throw new NotFoundError('User', userId);
-    return toPublicUser(u);
+    return u;
   }
 
   async updateMe(user: AuthUser, dto: UpdateMeDto): Promise<PublicUser> {
-    const u = await this.m.User.findByIdAndUpdate(user.userId, { $set: dto }, { new: true, runValidators: true }).lean();
-    return toPublicUser(u!);
+    const set: { name?: string; phone?: string } = {};
+    if (dto.name !== undefined) set.name = dto.name.trim();
+    if (dto.phone !== undefined) set.phone = dto.phone;
+    if (Object.keys(set).length) await this.db.updateTable('users').set(set).where('id', '=', user.userId).execute();
+    return this.me(user.userId);
   }
 
-  async listStaff(propertyId: Types.ObjectId) {
-    const rows = await this.m.PropertyUser.find({ propertyId }).lean();
-    const users = await this.m.User.find({ _id: { $in: rows.map((r) => r.userId) } }, { name: 1, email: 1, status: 1 }).lean();
-    const byId = new Map(users.map((u) => [String(u._id), u]));
-    return rows.map((r) => {
-      const u = byId.get(String(r.userId));
-      return { userId: r.userId, name: u?.name, email: u?.email, status: u?.status, role: r.role };
-    });
+  async listStaff(propertyId: string) {
+    return this.db
+      .selectFrom('propertyUsers as pu')
+      .innerJoin('users as u', 'u.id', 'pu.userId')
+      .select(['pu.userId', 'u.name', 'u.email', 'u.status', 'pu.role'])
+      .where('pu.propertyId', '=', propertyId)
+      .orderBy('u.name')
+      .execute();
   }
 
   /**
-   * Adds a staff member to a property. Existing users of the same organization
-   * are linked. New users are created as INVITED (no usable password) and
-   * receive a set-password link.
+   * Adds a staff member to a property. Existing users of the same organization are linked. New users are created as
+   * INVITED (no usable password) and receive a set-password link.
    */
-  async addStaff(actor: AuthUser, meta: RequestMeta, propertyId: Types.ObjectId, dto: AddStaffDto) {
-    const property = await this.m.Property.findById(propertyId, { organizationId: 1 }).lean();
+  async addStaff(actor: AuthUser, meta: RequestMeta, propertyId: string, dto: AddStaffDto) {
+    const property = await this.db.selectFrom('properties').select('organizationId').where('id', '=', propertyId).executeTakeFirst();
     if (!property) throw new NotFoundError('Property', propertyId);
     const email = dto.email.trim().toLowerCase();
-    let user = await this.m.User.findOne({ email }).lean();
-    if (user && user.organizationId && !user.organizationId.equals(property.organizationId)) {
+    let user = await this.db.selectFrom('users').select(PUBLIC_USER_COLUMNS).where('email', '=', email).executeTakeFirst();
+    if (user && user.organizationId && user.organizationId !== property.organizationId) {
       throw new ConflictError('EMAIL_TAKEN', 'This email belongs to another organization');
     }
     if (!user) {
-      const [created] = await this.m.User.create([
-        {
-          organizationId: property.organizationId,
-          name: dto.name,
-          email,
-          phone: dto.phone,
-          // Random unusable password until the invitee sets one via the link.
-          passwordHash: await hashPassword(randomBytes(24).toString('base64url')),
-          role: dto.role,
-          status: UserStatus.INVITED,
-        },
-      ]);
-      user = created.toObject();
+      // Random unusable password until the invitee sets one via the link.
+      const passwordHash = await hashPassword(randomBytes(24).toString('base64url'));
+      try {
+        user = await this.db
+          .insertInto('users')
+          .values({ organizationId: property.organizationId, name: dto.name, email, phone: dto.phone ?? null, passwordHash, role: dto.role, status: UserStatus.INVITED, lastLoginAt: null })
+          .returning(PUBLIC_USER_COLUMNS)
+          .executeTakeFirstOrThrow();
+      } catch (err) {
+        if (isUniqueViolation(err)) throw new ConflictError('EMAIL_TAKEN', 'This email is already registered');
+        throw err;
+      }
       await this.resets.issue(user, 'INVITE', propertyId);
     }
     try {
-      await this.m.PropertyUser.create({ propertyId, userId: user._id, role: dto.role });
+      await this.db.insertInto('propertyUsers').values({ propertyId, userId: user.id, role: dto.role }).execute();
     } catch (err) {
-      if (isDuplicateKeyError(err)) throw new ConflictError('DUPLICATE', 'User already has access to this property');
+      if (isUniqueViolation(err)) throw new ConflictError('DUPLICATE', 'User already has access to this property');
       throw err;
     }
-    await this.audit.log({ user: actor, meta }, {
-      action: 'property.staff_add',
-      entityType: 'Property',
-      entityId: propertyId,
-      propertyId,
-      after: { userId: user._id, role: dto.role },
-    });
-    return { userId: user._id, name: user.name, email: user.email, status: user.status, role: dto.role };
+    await this.audit.log({ user: actor, meta }, { action: 'property.staff_add', entityType: 'Property', entityId: propertyId, propertyId, after: { userId: user.id, role: dto.role } });
+    return { userId: user.id, name: user.name, email: user.email, status: user.status, role: dto.role };
   }
 
-  async removeStaff(actor: AuthUser, meta: RequestMeta, propertyId: Types.ObjectId, userId: Types.ObjectId) {
-    const row = await this.m.PropertyUser.findOne({ propertyId, userId }).lean();
-    if (!row) throw new NotFoundError('Property staff member', userId);
-    if (row.role === PropertyUserRole.PROPERTY_OWNER) {
-      const owners = await this.m.PropertyUser.countDocuments({ propertyId, role: PropertyUserRole.PROPERTY_OWNER });
-      if (owners <= 1) throw new DomainValidationError('A property must keep at least one owner');
-    }
-    await this.m.PropertyUser.deleteOne({ _id: row._id });
-    await this.audit.log({ user: actor, meta }, {
-      action: 'property.staff_remove',
-      entityType: 'Property',
-      entityId: propertyId,
-      propertyId,
-      before: { userId, role: row.role },
+  async removeStaff(actor: AuthUser, meta: RequestMeta, propertyId: string, userId: string) {
+    const row = await runInTransaction(this.db, async (tx) => {
+      const found = await tx.selectFrom('propertyUsers').selectAll().where('propertyId', '=', propertyId).where('userId', '=', userId).forUpdate().executeTakeFirst();
+      if (!found) throw new NotFoundError('Property staff member', userId);
+      if (found.role === PropertyUserRole.PROPERTY_OWNER) {
+        const owners = await tx.selectFrom('propertyUsers').select((eb) => eb.fn.countAll<number>().as('n')).where('propertyId', '=', propertyId).where('role', '=', PropertyUserRole.PROPERTY_OWNER).executeTakeFirstOrThrow();
+        if (Number(owners.n) <= 1) throw new DomainValidationError('A property must keep at least one owner');
+      }
+      await tx.deleteFrom('propertyUsers').where('id', '=', found.id).execute();
+      return found;
     });
+    await this.audit.log({ user: actor, meta }, { action: 'property.staff_remove', entityType: 'Property', entityId: propertyId, propertyId, before: { userId, role: row.role } });
     return { ok: true };
   }
 }

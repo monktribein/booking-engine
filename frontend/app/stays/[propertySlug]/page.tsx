@@ -11,7 +11,12 @@ import { MapPin, ShieldCheck, Sparkles, Check } from 'lucide-react';
 
 interface Props {
   params: Promise<{ propertySlug: string }>;
+  /** Dates and party size carried over from the search results page (?checkIn=&checkOut=&adults=). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 // Server-rendered Dynamic SEO Metadata & Open Graph
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -53,8 +58,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-export default async function PropertyStayPage({ params }: Props) {
+export default async function PropertyStayPage({ params, searchParams }: Props) {
   const { propertySlug } = await params;
+  const sp = (await searchParams) ?? {};
   let property;
   try {
     property = await bookingEngineApi.getPublicProperty(propertySlug);
@@ -63,8 +69,13 @@ export default async function PropertyStayPage({ params }: Props) {
     throw err; // anything else renders the route's error.tsx, never placeholder data
   }
   const startingFrom = property.roomTypes.length ? Math.min(...property.roomTypes.map((rt) => rt.startingFromPrice)) : null;
-  const defaultCheckIn = format(addDays(new Date(), 1), 'yyyy-MM-dd');
-  const defaultCheckOut = format(addDays(new Date(), 3), 'yyyy-MM-dd');
+  const qIn = first(sp.checkIn);
+  const qOut = first(sp.checkOut);
+  const fromSearch = !!qIn && !!qOut && DATE_RE.test(qIn) && DATE_RE.test(qOut) && qOut > qIn;
+  const defaultCheckIn = fromSearch ? (qIn as string) : format(addDays(new Date(), 1), 'yyyy-MM-dd');
+  const defaultCheckOut = fromSearch ? (qOut as string) : format(addDays(new Date(), 3), 'yyyy-MM-dd');
+  const qAdults = Number(first(sp.adults));
+  const defaultAdults = Number.isInteger(qAdults) && qAdults >= 1 && qAdults <= 50 ? qAdults : 2;
 
   // Schema.org Structured Data for SEO / Rich Snippets
   const jsonLd = {
@@ -115,6 +126,9 @@ export default async function PropertyStayPage({ params }: Props) {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link href="/stays" className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600">
+              All stays
+            </Link>
             <Link href="/booking/lookup"
               className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600"
             >
@@ -238,7 +252,7 @@ export default async function PropertyStayPage({ params }: Props) {
             </p>
           </div>
 
-          <PublicBookingClient propertySlug={propertySlug} currency={property.currency} initialRoomTypes={property.roomTypes} defaultCheckIn={defaultCheckIn} defaultCheckOut={defaultCheckOut} />
+          <PublicBookingClient propertySlug={propertySlug} currency={property.currency} initialRoomTypes={property.roomTypes} defaultCheckIn={defaultCheckIn} defaultCheckOut={defaultCheckOut} defaultAdults={defaultAdults} />
         </div>
       </main>
 

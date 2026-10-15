@@ -28,34 +28,63 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node scripts/check-secrets.cjs
+      - run: node backend/scripts/check-secrets.cjs
 
   backend:
-    name: Backend (typecheck, tests on the inline queue, build)
+    name: Backend (typecheck, tests on PostgreSQL + the inline queue, build, public API contract)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      # starts its own MongoDB replica set (mongodb-memory-server); the real-Redis suites skip themselves
+      # starts its own throw-away PostgreSQL 17 (embedded-postgres, official binaries); the real-Redis suites skip themselves
+      - run: npm test
+      # Concurrency guarantees (double booking, idempotency, constraints) and the backup/restore drill, on real PostgreSQL.
+      - run: npm run db:verify
+      - run: npm run drill:restore
+      - run: npm run build
+      # The public /v1 contract (docs/openapi-v1.json) must match the code: an unintended API change fails here.
+      - run: npm run openapi:check
+
+  sdk:
+    name: SDK (typecheck, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
       - run: npm test
       - run: npm run build
 
   backend-bullmq:
     name: Backend on real BullMQ + Redis
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: backend/package-lock.json
       - name: Install Redis 6.2+ (BullMQ's recommended minimum) without running it as a system service
         run: |
           sudo apt-get update
@@ -98,10 +127,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: |
-            package-lock.json
+            backend/package-lock.json
             frontend/package-lock.json
       - run: npm ci
+        working-directory: backend
       - run: npm run build
+        working-directory: backend
       - run: npm ci
         working-directory: frontend
       - run: npm run build
@@ -128,7 +159,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
-        run: docker build -t tirvona-api:ci .
+        run: docker build -t tirvona-api:ci ./backend
       - name: Backend refuses to start with an empty production environment
         run: |
           set +e
@@ -157,5 +188,5 @@ jobs:
           test $code -eq 1
       - name: Compose file is valid
         run: |
-          cp .env.example .env
+          cp backend/.env.example backend/.env
           docker compose config --quiet

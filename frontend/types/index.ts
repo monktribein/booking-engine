@@ -5,7 +5,6 @@ import {
   ChannelListingStatus,
   InventoryBlockReason,
   InventoryBlockStatus,
-  MappingStatus,
   MarkupType,
   MealPlan,
   PaymentProvider,
@@ -18,8 +17,6 @@ import {
   ReservationStatus,
   RoomStatus,
   RoomTypeStatus,
-  SyncJobStatus,
-  SyncJobType,
   UserRole,
   UserStatus,
 } from './enums';
@@ -454,6 +451,46 @@ export interface PublicPropertyData {
   images: PropertyImage[];
   roomTypes: PublicRoomType[];
   taxPercent?: number;
+}
+
+/** One result of GET /public/properties. The stay fields are present only when the search had dates. */
+export interface PublicPropertySearchItem {
+  slug: string;
+  name: string;
+  description?: string;
+  city: string;
+  state: string;
+  country: string;
+  currency: string;
+  image: { url: string; caption?: string } | null;
+  amenities: string[];
+  /** Lowest nightly price before tax, minor units. */
+  startingFromPrice: number;
+  maxOccupancy: number;
+  nights?: number;
+  availableFromNightly?: number;
+  availableFromTotal?: number;
+  availableRoomTypes?: number;
+}
+
+export interface PublicPropertySearchResult {
+  items: PublicPropertySearchItem[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export interface PublicPropertySearchParams {
+  q?: string;
+  checkIn?: string;
+  checkOut?: string;
+  adults?: number;
+  /** Minor units (paise). */
+  minPrice?: number;
+  maxPrice?: number;
+  amenities?: string[];
+  sort?: 'recommended' | 'price_asc' | 'price_desc';
+  page?: number;
 }
 
 export interface PublicRoomType {

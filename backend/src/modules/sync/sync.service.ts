@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
 import { addDays, eachNight, formatDateOnly, todayIn } from '../../database/common/dates';
-import { ChannelConnectionStatus, MappingStatus, SyncJobType, SyncLogStatus } from '../../database/enums';
+import { ChannelCode, ChannelConnectionStatus, MappingStatus, SyncJobType, SyncLogStatus } from '../../database/enums';
 import { ChannelError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { SyncJob } from '../../database/schemas/ops.schema';
+import type { SyncJob } from '../../database/db-types';
+import { Db, InjectDb } from '../../database/kysely';
+import { d } from '../../database/sql';
 import { ChannelMappingService } from '../../database/services/channel-mapping.service';
 import { SyncJobService } from '../../database/services/sync-job.service';
 import { JobContext, isFinalAttempt, isRetryable, nonRetryable } from '../../jobs/job-handler';
@@ -27,33 +26,29 @@ import type { AvailabilityUpdate, PushResult, RateUpdate, RestrictionUpdate } fr
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly syncJobs: SyncJobService,
     private readonly registry: ChannelAdapterRegistry,
     private readonly channels: ChannelsService,
     private readonly outbox: OutboxDispatcher,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   async run(ctx: JobContext, syncJobId: string): Promise<{ status: string; pushed?: number }> {
     const workerId = `${process.pid}:${ctx.id}:${ctx.attemptsMade}`;
-    const job = await this.syncJobs.claimById(new Types.ObjectId(syncJobId), workerId);
+    const job = await this.syncJobs.claimById(syncJobId, workerId);
     if (!job) return { status: 'SKIPPED_ALREADY_HANDLED' };
     const started = Date.now();
     try {
-      const conn = await this.m.ChannelConnection.findOne({ propertyId: job.propertyId, channel: job.channel }, { status: 1, metadata: 1 }).lean();
+      const conn = await this.db.selectFrom('channelConnections').select(['status', 'metadata']).where('propertyId', '=', job.propertyId).where('channel', '=', job.channel).executeTakeFirst();
       if (!conn || conn.status !== ChannelConnectionStatus.CONNECTED) {
         // Nothing to push to. A full resync runs when the channel is (re)connected.
-        await this.syncJobs.complete(job._id, workerId);
+        await this.syncJobs.complete(job.id, workerId);
         return { status: 'SKIPPED_NOT_CONNECTED' };
       }
       if ((conn.metadata as { mock?: boolean } | undefined)?.mock) {
         // Seed/sandbox connection with no real credentials: nothing real to push to.
-        await this.syncJobs.complete(job._id, workerId);
+        await this.syncJobs.complete(job.id, workerId);
         return { status: 'SKIPPED_MOCK_CONNECTION' };
       }
       const adapter = this.registry.get(job.channel);
@@ -89,19 +84,19 @@ export class SyncService {
 
       await this.syncJobs.log({
         propertyId: job.propertyId,
-        channel: job.channel,
-        syncJobId: job._id,
+        channel: job.channel as ChannelCode,
+        syncJobId: job.id,
         action: `push_${job.type.toLowerCase()}`,
         status: SyncLogStatus.SUCCESS,
         requestMetadata: { updates: count, dateFrom: job.dateFrom, dateTo: job.dateTo, roomTypeId: job.roomTypeId, attempt: ctx.attemptsMade + 1 },
         responseMetadata: { ...result },
         duration: Date.now() - started,
       });
-      await this.syncJobs.complete(job._id, workerId);
+      await this.syncJobs.complete(job.id, workerId);
       const now = new Date();
-      await this.m.ChannelConnection.updateOne({ propertyId: job.propertyId, channel: job.channel }, { $set: { lastSyncAt: now, lastError: null } });
+      await this.db.updateTable('channelConnections').set({ lastSyncAt: now, lastError: null }).where('propertyId', '=', job.propertyId).where('channel', '=', job.channel).execute();
       if (job.channelListingId && job.roomTypeId) {
-        await this.m.ChannelRoomMapping.updateMany({ channelListingId: job.channelListingId, roomTypeId: job.roomTypeId }, { $set: { lastSyncedAt: now } });
+        await this.db.updateTable('channelRoomMappings').set({ lastSyncedAt: now }).where('channelListingId', '=', job.channelListingId).where('roomTypeId', '=', job.roomTypeId).execute();
       }
       return { status: 'SUCCESS', pushed: count };
     } catch (err) {
@@ -109,17 +104,17 @@ export class SyncService {
       const final = !isRetryable(err) || isFinalAttempt(ctx);
       await this.syncJobs.log({
         propertyId: job.propertyId,
-        channel: job.channel,
-        syncJobId: job._id,
+        channel: job.channel as ChannelCode,
+        syncJobId: job.id,
         action: `push_${job.type.toLowerCase()}`,
         status: SyncLogStatus.FAILED,
         requestMetadata: { dateFrom: job.dateFrom, dateTo: job.dateTo, roomTypeId: job.roomTypeId, attempt: ctx.attemptsMade + 1 },
         error: message,
         duration: Date.now() - started,
       });
-      await this.syncJobs.recordAttemptFailure(job._id, workerId, message, final);
+      await this.syncJobs.recordAttemptFailure(job.id, workerId, message, final);
       if (final) {
-        await this.m.ChannelConnection.updateOne({ propertyId: job.propertyId, channel: job.channel }, { $set: { lastError: message.slice(0, 2000) } });
+        await this.db.updateTable('channelConnections').set({ lastError: message.slice(0, 2000) }).where('propertyId', '=', job.propertyId).where('channel', '=', job.channel).execute();
         void this.outbox.flush(); // deliver the CHANNEL_SYNC_FAILED alert
         this.logger.error(`sync ${job.type} → ${job.channel} failed permanently: ${message}`);
         throw nonRetryable(err);
@@ -133,8 +128,15 @@ export class SyncService {
   private async targets(job: SyncJob, flag: 'syncAvailability' | 'syncRates' | 'syncRestrictions') {
     if (!job.channelListingId || !job.roomTypeId) return [];
     const [listing, mappings] = await Promise.all([
-      this.m.ChannelListing.findById(job.channelListingId, { externalListingId: 1 }).lean(),
-      this.m.ChannelRoomMapping.find({ channelListingId: job.channelListingId, roomTypeId: job.roomTypeId, status: MappingStatus.ACTIVE, [flag]: true }).lean(),
+      this.db.selectFrom('channelListings').select('externalListingId').where('id', '=', job.channelListingId).executeTakeFirst(),
+      this.db
+        .selectFrom('channelRoomMappings')
+        .selectAll()
+        .where('channelListingId', '=', job.channelListingId)
+        .where('roomTypeId', '=', job.roomTypeId)
+        .where('status', '=', MappingStatus.ACTIVE)
+        .where(flag, '=', true)
+        .execute(),
     ]);
     if (!listing) return [];
     return mappings.map((mp) => ({ mapping: mp, externalListingId: listing.externalListingId }));
@@ -142,7 +144,7 @@ export class SyncService {
 
   /** Clamp to [today, horizon): past nights are never pushed. */
   private async window(job: SyncJob): Promise<{ from: Date; to: Date } | null> {
-    const property = await this.m.Property.findById(job.propertyId, { timezone: 1, bookingHorizonDays: 1 }).lean();
+    const property = await this.db.selectFrom('properties').select(['timezone', 'bookingHorizonDays']).where('id', '=', job.propertyId).executeTakeFirst();
     if (!property) return null;
     const today = todayIn(property.timezone);
     const horizon = addDays(today, property.bookingHorizonDays);
@@ -155,10 +157,15 @@ export class SyncService {
     const targets = await this.targets(job, 'syncAvailability');
     const w = await this.window(job);
     if (!targets.length || !w) return [];
-    const rows = await this.m.Inventory.find(
-      { propertyId: job.propertyId, roomTypeId: job.roomTypeId, date: { $gte: w.from, $lt: w.to } },
-      { date: 1, available: 1, stopSell: 1 },
-    ).lean();
+    const rows = await this.db
+      .selectFrom('inventory')
+      .select(['date', 'available', 'stopSell'])
+      .where('propertyId', '=', job.propertyId)
+      .where('roomTypeId', '=', job.roomTypeId!)
+      .where('date', '>=', d(w.from))
+      .where('date', '<', d(w.to))
+      .orderBy('date')
+      .execute();
     return targets.flatMap((t) =>
       rows.map((r) => ({
         externalListingId: t.externalListingId,
@@ -176,8 +183,8 @@ export class SyncService {
     const w = await this.window(job);
     if (!targets.length || !w) return [];
     const [rows, inv] = await Promise.all([
-      this.m.Restriction.find({ propertyId: job.propertyId, roomTypeId: job.roomTypeId, date: { $gte: w.from, $lt: w.to } }).lean(),
-      this.m.Inventory.find({ propertyId: job.propertyId, roomTypeId: job.roomTypeId, date: { $gte: w.from, $lt: w.to } }, { date: 1, stopSell: 1 }).lean(),
+      this.db.selectFrom('restrictions').selectAll().where('propertyId', '=', job.propertyId).where('roomTypeId', '=', job.roomTypeId!).where('date', '>=', d(w.from)).where('date', '<', d(w.to)).execute(),
+      this.db.selectFrom('inventory').select(['date', 'stopSell']).where('propertyId', '=', job.propertyId).where('roomTypeId', '=', job.roomTypeId!).where('date', '>=', d(w.from)).where('date', '<', d(w.to)).execute(),
     ]);
     const byDate = new Map(rows.map((r) => [r.date.getTime(), r]));
     const stop = new Map(inv.map((r) => [r.date.getTime(), r.stopSell]));
@@ -203,18 +210,22 @@ export class SyncService {
     const targets = await this.targets(job, 'syncRates');
     const w = await this.window(job);
     if (!targets.length || !w) return [];
-    const rateMappings = await this.m.ChannelRateMapping.find({
-      channelRoomMappingId: { $in: targets.map((t) => t.mapping._id) },
-      status: MappingStatus.ACTIVE,
-    }).lean();
-    const ratePlans = await this.m.RatePlan.find({ _id: { $in: rateMappings.map((r) => r.ratePlanId) } }, { basePrice: 1, currency: 1, status: 1 }).lean();
-    const rpById = new Map(ratePlans.map((rp) => [String(rp._id), rp]));
+    const rateMappings = await this.db
+      .selectFrom('channelRateMappings')
+      .selectAll()
+      .where('channelRoomMappingId', 'in', targets.map((t) => t.mapping.id))
+      .where('status', '=', MappingStatus.ACTIVE)
+      .execute();
+    const ratePlans = rateMappings.length
+      ? await this.db.selectFrom('ratePlans').select(['id', 'basePrice', 'currency', 'status']).where('id', 'in', rateMappings.map((r) => r.ratePlanId)).execute()
+      : [];
+    const rpById = new Map(ratePlans.map((rp) => [rp.id, rp]));
     const nights = eachNight(w.from, w.to);
     return targets.flatMap((t) =>
       rateMappings
-        .filter((rm) => rm.channelRoomMappingId.equals(t.mapping._id))
+        .filter((rm) => rm.channelRoomMappingId === t.mapping.id)
         .flatMap((rm) => {
-          const rp = rpById.get(String(rm.ratePlanId));
+          const rp = rpById.get(rm.ratePlanId);
           if (!rp) return [];
           const price = ChannelMappingService.channelPrice(rp.basePrice, rm);
           return nights.map((d) => ({
@@ -233,7 +244,7 @@ export class SyncService {
   async acknowledge(propertyId: string, channel: string, externalReservationId: string, ctx: JobContext): Promise<void> {
     const adapter = this.registry.get(channel);
     try {
-      const { creds } = await this.channels.credentials(new Types.ObjectId(propertyId), adapter);
+      const { creds } = await this.channels.credentials(propertyId, adapter);
       await adapter.acknowledgeReservation(creds, externalReservationId);
     } catch (err) {
       if (!isRetryable(err) || isFinalAttempt(ctx)) throw nonRetryable(err);
@@ -243,7 +254,7 @@ export class SyncService {
 
   /** Safety net for missed webhooks: fetch recent reservations and feed them through the webhook inbox. */
   async pullReservations(connectionId: string, ingest: (channel: string, events: unknown[]) => Promise<number>): Promise<number> {
-    const conn = await this.m.ChannelConnection.findById(connectionId, { propertyId: 1, channel: 1, status: 1, lastSyncAt: 1 }).lean();
+    const conn = await this.db.selectFrom('channelConnections').select(['propertyId', 'channel', 'status']).where('id', '=', connectionId).executeTakeFirst();
     if (!conn || conn.status !== ChannelConnectionStatus.CONNECTED) return 0;
     const adapter = this.registry.get(conn.channel);
     try {

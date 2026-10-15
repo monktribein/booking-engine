@@ -6,7 +6,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsMongoId,
+  IsUUID,
   IsNumber,
   IsOptional,
   IsString,
@@ -17,8 +17,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { IsDateOnly } from '../../common/dto';
-import { CancellationPenaltyType, MealPlan, RatePlanStatus, RatePlanType } from '../../database/enums';
-import { PromotionType } from '../../database/schemas/promotion.schema';
+import { CancellationPenaltyType, MealPlan, PromotionType, RatePlanStatus, RatePlanType } from '../../database/enums';
 
 export class CancellationPolicyDto {
   @ApiProperty() @IsBoolean() refundable!: boolean;
@@ -29,7 +28,7 @@ export class CancellationPolicyDto {
 }
 
 export class CreateRatePlanDto {
-  @ApiProperty() @IsMongoId() roomTypeId!: string;
+  @ApiProperty() @IsUUID() roomTypeId!: string;
   @ApiProperty({ example: 'Bed & Breakfast' }) @IsString() @Length(1, 120) name!: string;
   @ApiProperty({ example: 'BB' }) @Matches(/^[A-Za-z0-9_-]{1,40}$/) code!: string;
   @ApiProperty({ enum: RatePlanType }) @IsEnum(RatePlanType) type!: RatePlanType;
@@ -67,7 +66,7 @@ export class CreatePromotionDto {
   @ApiProperty({ example: '2026-10-01' }) @IsDateOnly() validFrom!: string;
   @ApiProperty({ example: '2026-11-15', description: 'Exclusive' }) @IsDateOnly() validTo!: string;
   @ApiPropertyOptional({ default: 1 }) @IsOptional() @IsInt() @Min(1) minNights?: number;
-  @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(50) @IsMongoId({ each: true }) roomTypeIds?: string[];
+  @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(50) @IsUUID(undefined, { each: true }) roomTypeIds?: string[];
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() active?: boolean;
 }
 

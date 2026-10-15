@@ -7,7 +7,13 @@ export function validateEnv(raw: Record<string, unknown>): Record<string, unknow
   const errors: string[] = [];
   const isProd = env.NODE_ENV === 'production';
 
-  if (!env.MONGODB_URI && !env.DATABASE_URL) errors.push('MONGODB_URI (or DATABASE_URL) is required');
+  if (!env.DATABASE_URL) errors.push('DATABASE_URL is required (the PostgreSQL / Supabase connection string)');
+  else if (!/^postgres(ql)?:\/\//.test(env.DATABASE_URL)) errors.push('DATABASE_URL must start with postgresql:// (copy it from Supabase: Project Settings > Database > Connection string)');
+  else if (/[<>]|\[YOUR-PASSWORD\]/.test(env.DATABASE_URL)) errors.push('DATABASE_URL still contains a placeholder such as [YOUR-PASSWORD] or <password>; replace it with the real value');
+  if (env.DATABASE_SSL && !['disable', 'require', 'verify-full'].includes(env.DATABASE_SSL)) errors.push('DATABASE_SSL must be disable, require or verify-full');
+  if (env.DATABASE_SSL === 'verify-full' && !env.DATABASE_CA_CERT) errors.push('DATABASE_SSL=verify-full needs DATABASE_CA_CERT (PEM text or a file path)');
+  if (isProd && env.DATABASE_SSL === 'disable') errors.push('DATABASE_SSL=disable is not allowed in production');
+  if (env.DATABASE_POOL_MAX && !/^[1-9]\d*$/.test(env.DATABASE_POOL_MAX)) errors.push('DATABASE_POOL_MAX must be a positive integer');
   for (const k of ['JWT_SECRET', 'JWT_REFRESH_SECRET'] as const) {
     if (!env[k]) errors.push(`${k} is required`);
     else if (env[k]!.length < 32) errors.push(`${k} must be at least 32 characters`);

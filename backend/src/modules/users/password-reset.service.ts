@@ -1,52 +1,45 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectConnection } from '@nestjs/mongoose';
 import { createHmac, randomBytes } from 'node:crypto';
-import { Connection, Types } from 'mongoose';
 import type { AppConfig } from '../../config/configuration';
 import { encryptSecret } from '../../database/common/crypto';
 import { NotificationChannel, NotificationType } from '../../database/enums';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
+import { insertNotification } from '../../database/repos';
 import { OutboxDispatcher } from '../../jobs/outbox.dispatcher';
 
 const RESET_TTL_MS = 30 * 60_000;
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 
 /**
- * One-time password-reset / invitation links. Only an HMAC of the token is
- * stored. The link travels to the email sender encrypted in the notification's
- * metadata, and the sender removes it after sending, so the database never
- * holds a usable plaintext link.
+ * One-time password-reset / invitation links. Only an HMAC of the token is stored. The link travels to the email sender
+ * encrypted in the notification's metadata, and the sender removes it after sending, so the database never holds a
+ * usable plaintext link.
  */
 @Injectable()
 export class PasswordResetService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly outbox: OutboxDispatcher,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   hashToken(token: string): string {
     return createHmac('sha256', this.config.get('jwt', { infer: true }).refreshSecret).update(`reset:${token}`).digest('hex');
   }
 
-  async issue(user: { _id: Types.ObjectId; email: string; name: string }, kind: 'RESET' | 'INVITE', propertyId?: Types.ObjectId): Promise<void> {
+  async issue(user: { id: string; email: string; name: string }, kind: 'RESET' | 'INVITE', propertyId?: string): Promise<void> {
     const token = randomBytes(32).toString('base64url');
-    await this.m.PasswordResetToken.create({
-      userId: user._id,
-      tokenHash: this.hashToken(token),
-      expiresAt: new Date(Date.now() + (kind === 'INVITE' ? INVITE_TTL_MS : RESET_TTL_MS)),
-    });
+    await this.db
+      .insertInto('passwordResetTokens')
+      .values({ userId: user.id, tokenHash: this.hashToken(token), expiresAt: new Date(Date.now() + (kind === 'INVITE' ? INVITE_TTL_MS : RESET_TTL_MS)), usedAt: null })
+      .execute();
     const link = `${this.config.get('appUrl', { infer: true })}/reset-password?token=${token}`;
-    // Notifications are property-scoped; account emails use the user's first property, or a nil id.
-    const pid = propertyId ?? (await this.m.PropertyUser.findOne({ userId: user._id }, { propertyId: 1 }).lean())?.propertyId ?? new Types.ObjectId('000000000000000000000000');
-    await this.m.Notification.create({
+    // Notifications are property-scoped when possible; account emails of a user without any property carry no property.
+    const pid = propertyId ?? (await this.db.selectFrom('propertyUsers').select('propertyId').where('userId', '=', user.id).limit(1).executeTakeFirst())?.propertyId ?? null;
+    await insertNotification(this.db, {
       propertyId: pid,
-      userId: user._id,
+      userId: user.id,
       type: NotificationType.PASSWORD_RESET,
       channel: NotificationChannel.EMAIL,
       recipient: user.email,
@@ -61,12 +54,15 @@ export class PasswordResetService {
   }
 
   /** Returns the userId if the token is valid and unused, marking it used atomically. */
-  async consume(token: string): Promise<Types.ObjectId | null> {
-    const doc = await this.m.PasswordResetToken.findOneAndUpdate(
-      { tokenHash: this.hashToken(token), usedAt: null, expiresAt: { $gt: new Date() } },
-      { $set: { usedAt: new Date() } },
-      { new: true },
-    ).lean();
-    return doc?.userId ?? null;
+  async consume(token: string): Promise<string | null> {
+    const row = await this.db
+      .updateTable('passwordResetTokens')
+      .set({ usedAt: new Date() })
+      .where('tokenHash', '=', this.hashToken(token))
+      .where('usedAt', 'is', null)
+      .where('expiresAt', '>', new Date())
+      .returning('userId')
+      .executeTakeFirst();
+    return row?.userId ?? null;
   }
 }

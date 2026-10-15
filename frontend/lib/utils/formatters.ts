@@ -75,6 +75,8 @@ export function getChannelBadge(channel: ReservationSource | ChannelCode | strin
     case ReservationSource.TIRVONA:
     case ChannelCode.TIRVONA:
       return { bg: 'bg-indigo-50 dark:bg-indigo-950/30', text: 'text-indigo-700 dark:text-indigo-400', label: 'Tirvona', iconColor: '#6366F1' };
+    case ReservationSource.API:
+      return { bg: 'bg-teal-50 dark:bg-teal-950/30', text: 'text-teal-700 dark:text-teal-400', label: 'API', iconColor: '#14B8A6' };
     case ReservationSource.WALK_IN:
       return { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', label: 'Walk-in', iconColor: '#F59E0B' };
     default:

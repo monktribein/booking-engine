@@ -1,6 +1,6 @@
 # Final production audit
 
-Date of evidence: 2026-10-14. Scope: the Tirvona backend (NestJS, MongoDB, BullMQ), the Next.js frontend and the booking + Razorpay journey. No product features were added in this audit. Every result below is from a command that was run; where something could not be run the report says so.
+Date of evidence: 2026-10-14. Scope: the Tirvona backend (NestJS, then on MongoDB, since migrated to PostgreSQL: see the 2026-10-15 database addendum at the end; BullMQ), the Next.js frontend and the booking + Razorpay journey. No product features were added in this audit. Every result below is from a command that was run; where something could not be run the report says so.
 
 Related documents: `docs/FRONTEND_INTEGRATION.md` (screen-to-endpoint map, fallback inventory), `docs/OPERATIONS.md` (queues, logging, alerts, backups), `docs/DEPLOYMENT.md` (Docker, CI, rollback).
 
@@ -11,7 +11,7 @@ Related documents: `docs/FRONTEND_INTEGRATION.md` (screen-to-endpoint map, fallb
 | Blocker (each is a critical check that has not been done) |
 | --- |
 | No real Razorpay test-mode transaction. Payment was exercised against a faithful fake gateway only (HMAC scheme, orders, refunds), end to end in a real browser, but never against `api.razorpay.com` or the real Checkout window. |
-| The configured database cannot be reached: `.env` has `MONGODB_URI=MONGODB_URI=mongodb+srv://…<cluster>…` (doubled prefix, placeholder). Backups, retention and restore of the real deployment are unverified. |
+| *(Original finding, MongoDB era)* The configured database could not be reached: `.env` had a malformed `MONGODB_URI`. The application now uses PostgreSQL (`DATABASE_URL`); the real Supabase project has never been connected by this work. Backups, retention and restore of the real deployment are unverified. |
 | Docker is not installed on this machine: neither image was built, `docker compose up` was never run, so the deployment configuration is written and partly simulated but unproven. |
 | The CI workflow has never run (the project is not a Git repository, nothing was pushed). |
 | No e-mail provider has been used (SMTP verified only against a local test server), so guests would receive no booking confirmation until `SMTP_URL` is configured and tested. |
@@ -29,13 +29,13 @@ What is solid, with evidence: no fake authentication and no mock-as-success path
 | 3 | Demo fixtures isolated and documented | **Verified** | `frontend/lib/fixtures/demo-data.ts` (780 lines): imported by nothing (test-enforced), excluded from typecheck and lint, header comment explains it. Real demo data = backend seed. The sandbox Razorpay shim (`scripts/sandbox-razorpay-shim.cjs`) is loaded only by `npm run sandbox` and throws if `NODE_ENV=production`. |
 | 4 | Every dashboard and public screen has a verified endpoint mapping | **Verified (with a caveat)** | Matrix in section 5. All screens are exercised against the live API through the real page components in jsdom (`tests/live/screens.test.tsx`, 15 tests) and the API modules (`live-api.test.ts`, 32). Only the flows in section 6 are also driven in a real browser. |
 | 5 | Loading / empty / error states | **Verified** | `QueryState` renders exactly one of skeleton, error (retry only when useful), empty, data; 19 state tests; 17 PmsCalendar tests; Playwright failure/retry tests. Visual layout and keyboard/responsive behaviour were **not** inspected. |
-| 6 | Public booking + Razorpay sandbox flow against the real backend | **Partly verified** | Search -> hold -> Checkout -> server signature verification -> confirmation, including dismiss+retry, declined payment, forged signature, double submit: real Chrome + real NestJS + real MongoDB, 20/20 three times. The gateway is the local fake (`dev-sandbox.ts`) and Checkout is a stand-in script. **Not** done: a real Razorpay test-mode order and the real Checkout window. |
+| 6 | Public booking + Razorpay sandbox flow against the real backend | **Partly verified** | Search -> hold -> Checkout -> server signature verification -> confirmation, including dismiss+retry, declined payment, forged signature, double submit: real Chrome + real NestJS + real database (then MongoDB; re-run on PostgreSQL, see the database addendum), 20/20 three times. The gateway is the local fake (`dev-sandbox.ts`) and Checkout is a stand-in script. **Not** done: a real Razorpay test-mode order and the real Checkout window. |
 | 7 | Duplicate webhooks, concurrent reservations, inventory consistency covered | **Verified** | `inventory-concurrency` (1 room x 2 and x 20 requests), `booking-payment-reliability` (11: callback + 2 webhooks racing, 9 repeated callbacks, forged/replayed signatures, dismiss then expiry, failed then retried payment, late payment after expiry refunded and not re-sold, last room x 3 bookings, same Idempotency-Key x 5, confirmed booking immune to expiry, refund rules), `webhooks`, `payments`. All pass on both queue drivers. |
-| 8 | MongoDB and real Redis tests run | **Verified (caveat)** | MongoDB 8.2 replica set (in-memory, transactions) for every backend run. Real Redis: **5.0.14.1**, an unofficial Windows port (the only one obtainable here; Docker/WSL absent); BullMQ recommends 6.2+. Atlas was not reachable. |
+| 8 | Database and real Redis tests run | **Verified (caveat)** | *(MongoDB era: 8.2 in-memory replica set. Now: a real PostgreSQL 17 per test file, see the database addendum.)* Real Redis: **5.0.14.1**, an unofficial Windows port (the only one obtainable here; Docker/WSL absent); BullMQ recommends 6.2+. The hosted database (Atlas then, Supabase now) was never reachable from this work. |
 | 9 | Typechecks, suites, production builds recorded | **Verified** | Section 4. |
 | 10 | CI, Docker, deployment docs consistent with the code | **Partly verified** | The workflow YAML parses and each of its commands was run locally except `docker`/`apt` ones; the Dockerfile's runtime layer was simulated (standalone build + static + public copied the way the image does, started, health checked, refusal paths exercised). The images were not built. |
-| 11 | Secrets excluded from Git and browser variables | **Verified (with a caveat)** | There is no Git repo yet; `.gitignore` excludes `.env*` (except `*.example`), keys, certificates, builds, test artefacts. `scripts/check-secrets.cjs` finds nothing in the tree. Frontend startup rejects secret-looking `NEXT_PUBLIC_*` names (tested). The bundle was grepped for the sandbox secrets and connection strings: none. Caveat: `.env` in the folder holds real-looking Atlas credentials and must never be copied, zipped or committed. |
-| 12 | Monitoring, backup, recovery documented, status clear | **Documented; not operational** | `docs/OPERATIONS.md` marks each item verified / defined / not verified. Alerts are written down but no monitoring system exists. Backups of the real database: unknown. A restore **drill** in an isolated database passes (8/8), which proves the procedure and data model, not Atlas. |
+| 11 | Secrets excluded from Git and browser variables | **Verified (with a caveat)** | There is no Git repo yet; `.gitignore` excludes `.env*` (except `*.example`), keys, certificates, builds, test artefacts. `scripts/check-secrets.cjs` finds nothing in the tree. Frontend startup rejects secret-looking `NEXT_PUBLIC_*` names (tested). The bundle was grepped for the sandbox secrets and connection strings: none. Caveat: `backend/.env` in the folder may hold real database credentials (it did hold Atlas ones) and must never be copied, zipped or committed. |
+| 12 | Monitoring, backup, recovery documented, status clear | **Documented; not operational** | `docs/OPERATIONS.md` marks each item verified / defined / not verified. Alerts are written down but no monitoring system exists. Backups of the real database: unknown. A restore **drill** in an isolated database passes (8/8), which proves the procedure and data model, not the hosted provider's backups. |
 | 13 | Missing routes, incomplete adapters, external approvals documented | **Done** | Section 7. |
 | 14 | Existing changes not discarded | **Mostly; one caveat** | The user's `.env` is untouched (still dated 2026-09-26). The old mock data was moved, not deleted. No Git history exists, so there is no way to recover the *previous version of the dashboard pages*: they were rewritten to call the real API (their old content was fake-data rendering). Nothing was committed, pushed, force-pushed or deleted from a database. Dependencies were upgraded (Next.js 16.3.6 -> 16.3.8 patch) and added (Playwright, Vitest, Testing Library, nodemailer; dev: smtp-server). |
 
@@ -110,13 +110,13 @@ Security:
 5. Refresh token is stored in `localStorage` (XSS-exposed) although the API also sets an httpOnly cookie that the frontend does not use. Decide and migrate (cookie + `credentials: 'include'` + CSRF protection).
 6. No Content-Security-Policy yet (Razorpay Checkout needs `script-src`/`frame-src` allowances); basic headers (nosniff, frame deny, referrer, permissions) are set.
 7. Dev-tooling advisories (vitest/tinypool critical) and 2 moderate backend advisories (js-yaml via swagger): not reachable in production runtime paths as far as audited, but should be updated.
-8. `.env` with Atlas credentials sits in the project folder. Rotate the database password if the folder was ever shared.
+8. `backend/.env` may hold real database credentials (it held Atlas ones). Rotate the database password if the folder was ever shared, and rotate the Atlas credentials before decommissioning that cluster.
 9. Rate limiting fails open when Redis is down (by design, now fast); during an outage the login brute-force protection is effectively off until Redis returns. Acceptable only with the Redis-down alert.
 
 ## 8. Deployment blockers and remaining work
 
 **Before go-live (must)**
-1. Fix `.env` (`MONGODB_URI` single prefix, real host); confirm the Atlas tier has continuous backup + PITR; run one restore into a scratch cluster; record RPO/RTO.
+1. Create the Supabase project, set `DATABASE_URL` (+ `DATABASE_SSL=verify-full` and the CA certificate), run `npm run db:migrate`; enable Supabase backups and PITR; run one restore into a scratch project; record RPO/RTO.
 2. Create a Razorpay test-mode account configuration (real `rzp_test_*` key, key secret, webhook secret, webhook URL) and complete one real Checkout payment, one failed payment, one refund; set `BOOKING_ENGINE_REQUIRE_PAYMENT=true`.
 3. Install Docker, `docker compose up --build`, run the whole flow on the built images (CI `docker` job does the builds and startup checks once the repo is on GitHub).
 4. `git init`, run `scripts/check-secrets.cjs`, commit, push, let CI run once; fix whatever it shows; pin Actions to SHAs.
@@ -139,8 +139,46 @@ Security:
 * No endpoint for: dashboard summary, all rooms of a property, all payments of a property, per-guest stays and lifetime value, reservation confirm (confirmation happens through payment), reservation room-type filter, export. The UI composes or omits these without inventing data.
 * `GET /admin/sync-errors` and sync-job retry are platform-admin only: an owner sees "not allowed".
 * Airbnb, Booking.com, Agoda: adapters are scaffolds; they need each platform's connectivity-partner approval. The UI reports "partner access needed".
-* Razorpay account, SMTP/SMS/WhatsApp providers, Atlas backup configuration, a monitoring/pager service and a container registry/host are external dependencies not available to this audit.
+* Razorpay account, SMTP/SMS/WhatsApp providers, Supabase project and backup configuration, a monitoring/pager service and a container registry/host are external dependencies not available to this audit.
 
 ## 10. Decision
 
 **NO-GO today.** Critical verifications are missing (real payment gateway, real database and backups, built images, CI run, real e-mail delivery). **CONDITIONAL GO** for a limited first rollout once items 1 to 6 under "Before go-live" are done and pass; the code and tests give no reason to expect surprises there, but that is an expectation, not evidence.
+
+## 10. Addendum 2026-10-15: product-code completion (public API, guest search, hardening)
+
+The verdict is unchanged: **NO-GO until the manual live-environment items in section 8 are done** (real Supabase `DATABASE_URL` and backups, a real Razorpay test payment, SMTP, Docker build, first CI run, monitoring). Section 8 item 4 is partly stale: a Git repository with a GitHub remote now exists (created by the owner); CI still has never run.
+
+**Added and verified (results in DEPLOYMENT.md section 6):**
+* **Public API v1** (`docs/PUBLIC_API.md`): hashed, scoped, revocable, property-restrictable API keys; availability, booking (required `Idempotency-Key`), retrieval, list, cancel; per-key rate limits; tenant isolation (other tenants' resources are 404); OpenAPI at `/docs/v1` and `docs/openapi-v1.json` guarded by `npm run openapi:check`; TypeScript SDK (`sdk/`).
+* **Signed outbound webhooks:** events written in the booking transaction (outbox), HMAC-SHA256 over timestamp + raw body, at-least-once with stable event id and identical body on every retry (12 attempts over about 17 h), manual redelivery, secret rotation, SSRF-safe sender (private/loopback/metadata addresses refused at connect time, no redirects), delivery history, `client_webhook_failed` log event.
+* **Dashboard:** Settings → Developers (keys, webhooks, deliveries, owner-only), Profile page with change-password (`POST /auth/change-password`, ends other logins), guest search page `/stays` with `GET /public/properties` (destination, dates, guests, price, amenities, sort, pages), opt-in "saved on this device" bookings.
+* **Hardening:** frontend Content-Security-Policy and HSTS (production builds; full browser suite passes with them), CI/Playwright/Docker/compose paths fixed for the `backend/` move, secret scanner now covers the whole repository, sync worker skips mock connections (no more error spam from demo OTA data), landing page no longer claims OTA synchronisation that does not exist.
+* **Defects found by the new tests and fixed:** missing DI token for the rate-limit storage in the API guard; new keys defaulting to no `properties:read`; decimal rupee amounts blocked by the price filter; unlabeled dismiss buttons in alerts (accessibility); lost regex backslashes in the property page's date parsing; three ESLint errors in `scripts/start-standalone.cjs`.
+
+**Known remaining limitations (code, not configuration):**
+1. **Airbnb, Booking.com, Agoda are not connected** and cannot be without approved partner access (docs/CHANNEL_ADAPTERS.md).
+2. **No guest accounts.** Guests find bookings with code + e-mail; a device-local, opt-in list exists, but there is no server-side booking history across devices.
+3. **`GET /public/properties` lists every ACTIVE property of every organization** (the property pages were already public by slug). If properties should opt in or out of the marketplace, add a flag; this is a product decision. A date-aware search checks at most 100 matching properties per request (one availability query each); beyond that scale it needs a precomputed index.
+4. The refresh token still lives in `localStorage` for the web app (the API also sets an httpOnly cookie that the web app does not use); the CSP keeps `'unsafe-inline'` scripts because Next.js needs nonces for strict CSP. Both are documented trade-offs, not fixed.
+5. SMS/WhatsApp still only log; flat nightly pricing and single tax percent; no password-changed e-mail notification.
+6. Razorpay has only been exercised against a faithful fake; the real Checkout window and real webhooks are untested.
+
+## 11. Addendum 2026-10-15: MongoDB replaced by PostgreSQL (Supabase)
+
+**What changed.** MongoDB and Mongoose are removed completely. PostgreSQL is the only database; Supabase is used only as hosted PostgreSQL (the app keeps its own JWT auth, roles, API keys, and enforces tenant isolation in code). 31 tables in one hand-written migration with CHECK constraints, unique/partial indexes, an append-only audit trigger and RLS enabled on every table with no policies (so Supabase's public Data API exposes nothing). Details and rationale: [DATABASE.md](DATABASE.md). The HTTP contract is unchanged: `docs/openapi-v1.json` is byte-identical (`npm run openapi:check` passes) and the dashboard still receives `_id`.
+
+**Verified (this machine, real PostgreSQL 17 via embedded-postgres, never a mock):**
+* `npm test`: 23 suites, 229 tests pass (10 BullMQ-only skipped). Includes the double-booking race (2 and 20 concurrent requests), multi-night atomicity, payment and webhook idempotency, tenant isolation of the public API, and new database tests: migrations idempotent and checksum-protected, RLS on every table, append-only audit log, CHECK/enum drift test, scheduled purge (replaces Mongo TTL indexes).
+* `npm run db:verify`: 45/45 (25 concurrent bookings of the last room give exactly 1; constraint rejects `available < 0`; index usage proven with EXPLAIN).
+* `npm run drill:restore`: 9/9 (31 tables backed up, database destroyed, fresh migrated database restored, row hashes identical, invariants hold).
+* Frontend: typecheck, lint, 222 unit/component tests, production build, and **26/26 real-browser (Chrome) journeys** against the PostgreSQL-backed sandbox.
+
+**Not verified (be explicit):**
+1. **Nothing was run against a real Supabase project**: connection strings, the pooler modes (transaction pooler 6543 vs session/direct for migrations), SSL with Supabase's CA certificate, connection limits, backups and PITR are documented but untested. Real-world behaviour of `DATABASE_SSL=require|verify-full` against Supabase is untested.
+2. **Real-BullMQ suites were not re-run** after the port (no Redis binary available here); the queue code is unchanged, but the outbox relay now uses `FOR UPDATE SKIP LOCKED` claims. CI's `backend-bullmq` job and `npm run test:bullmq` must be run once.
+3. **Docker and `docker-compose.yml`** (new `migrate` one-shot and `local-db` profile) were never executed.
+4. **No data was migrated.** The old MongoDB data (demo seed) is not carried over; the demo is re-seeded (`npm run db:seed`). If real MongoDB data ever existed it needs a one-off export/import script, which does not exist.
+5. The user's own sandbox on ports 3000/3001, if still running, is the old MongoDB build and must be restarted after `npm run build`.
+
+**New operational risks to know about:** the app role must own the tables or have `BYPASSRLS` (the `postgres` role does); a different role would see no rows because RLS has no policies. Connection count is now bounded by Supabase's plan: size `DATABASE_POOL_MAX` or use the transaction pooler. Migrations must run on a direct or session-pooler connection. Forward-only migrations: never edit an applied file.

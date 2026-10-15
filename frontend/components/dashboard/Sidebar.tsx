@@ -135,7 +135,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
         {/* User Profile & Sign Out Footer */}
         <div className="border-t border-slate-200/80 p-3 dark:border-slate-800">
           <div className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/50">
-            <div className="flex items-center gap-2.5 min-w-0">
+            <Link href="/dashboard/profile" onClick={onClose} title="Your profile" className="flex items-center gap-2.5 min-w-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 font-bold text-xs text-white">
                 {user?.name ? user.name[0].toUpperCase() : 'O'}
               </div>
@@ -147,7 +147,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
                   {user?.role ? user.role.replace('_', ' ').toLowerCase() : 'Owner'}
                 </span>
               </div>
-            </div>
+            </Link>
 
             <button
               onClick={() => logout()}

@@ -62,7 +62,6 @@ suite('BullMQ: graceful shutdown', () => {
       expect(await redis.zcard(`${prefix}:notification:failed`)).toBe(0);
     } finally {
       redis.disconnect();
-      await t.conn.dropDatabase().catch(() => undefined);
       await removeOwnKeys(process.env.REDIS_URL!, prefix);
     }
   });

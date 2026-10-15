@@ -1,91 +1,104 @@
 /**
- * Backup + restore DRILL, entirely in an isolated throw-away MongoDB (in-memory replica set). It never touches your
+ * Backup + restore DRILL, entirely in an isolated throw-away PostgreSQL server (embedded-postgres). It never touches your
  * configured database and never connects to anything else.
  *
- *   npx tsx scripts/restore-drill.ts
+ *   npm run drill:restore
  *
  * What it proves (and what it does not):
- *  1. A logical backup of EVERY collection (extended JSON, so ObjectIds, dates and decimals survive) can be taken from a
- *     seeded database that also contains a booking, a payment and a refund.
- *  2. After the database is destroyed, a restore into a fresh database brings back identical documents (per-collection count
- *     and content hash), then indexes and validators are re-created with setup-db.
+ *  1. A logical backup of EVERY table (one JSON line per row, so uuids, timestamps, bigints and jsonb survive) can be taken
+ *     from a seeded database that also contains a booking, a payment and a refund.
+ *  2. After the database is destroyed, a restore into a freshly MIGRATED database brings back identical rows (per-table
+ *     count and content hash). Constraints and indexes come from the migrations, not from the backup.
  *  3. The invariants that matter for reservations and payments hold after the restore:
- *       - inventory: available == total - sold - blocked, never negative
- *       - reservations: sum of their nights x rooms == sold counters for CONFIRMED / PENDING / CHECKED_IN stays
+ *       - inventory: available + sold + blocked == total + overbooked, never negative
+ *       - reservations: nights x rooms of live stays == sold counters
  *       - payments: reservation.amountPaid == PAID payments - refunds, never above the reservation total
- *       - uniqueness (reservation code, source+external id) is enforced again by the restored indexes
- * It does NOT test your hosting provider's backups (Atlas snapshots, PITR): those must be restored into a scratch
- * cluster by you; see docs/OPERATIONS.md.
+ *       - uniqueness (reservation code) is enforced again by the restored constraints
+ * It does NOT test your hosting provider's backups (Supabase daily backups / point-in-time recovery): those must be
+ * restored into a scratch project by you; see docs/OPERATIONS.md. It also is not pg_dump: use pg_dump/Supabase backups
+ * for real backups, this drill proves the data model survives a restore and the invariants still hold.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { EJSON } from 'bson';
-import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import mongoose, { Connection } from 'mongoose';
+import type { Pool } from 'pg';
+import { createDb, createPool } from '../src/database/kysely';
+import { migrate } from '../src/database/migrate';
+import { startEphemeralPg } from './embedded-pg';
 import { seed } from './seed';
-import { setupDatabase } from './setup-db';
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+type Manifest = Record<string, { count: number; hash: string }>;
 
-async function backup(conn: Connection, dir: string): Promise<Record<string, { count: number; hash: string }>> {
+const tablesOf = async (pool: Pool): Promise<string[]> =>
+  (await pool.query<{ tablename: string }>(`select tablename from pg_tables where schemaname = 'public' and tablename <> 'schema_migrations' order by tablename`)).rows.map((r) => r.tablename);
+
+async function backup(pool: Pool, dir: string): Promise<Manifest> {
   mkdirSync(dir, { recursive: true });
-  const manifest: Record<string, { count: number; hash: string }> = {};
-  for (const { name } of await conn.db!.listCollections({}, { nameOnly: true }).toArray()) {
-    if (name.startsWith('system.')) continue;
-    const docs = await conn.db!.collection(name).find().sort({ _id: 1 }).toArray();
-    const text = docs.map((d) => EJSON.stringify(d, { relaxed: false })).join('\n');
-    writeFileSync(path.join(dir, `${name}.ndjson`), text);
-    manifest[name] = { count: docs.length, hash: sha(text) };
+  const manifest: Manifest = {};
+  for (const table of await tablesOf(pool)) {
+    const rows = (await pool.query<{ j: unknown }>(`select to_jsonb(t) as j from "${table}" t order by to_jsonb(t)::text`)).rows;
+    const text = rows.map((r) => JSON.stringify(r.j)).join('\n');
+    writeFileSync(path.join(dir, `${table}.ndjson`), text);
+    manifest[table] = { count: rows.length, hash: sha(text) };
   }
   writeFileSync(path.join(dir, 'MANIFEST.json'), JSON.stringify(manifest, null, 2));
   return manifest;
 }
 
-async function restore(conn: Connection, dir: string): Promise<void> {
-  for (const file of readdirSync(dir).filter((f) => f.endsWith('.ndjson'))) {
-    const name = file.replace(/\.ndjson$/, '');
-    const text = readFileSync(path.join(dir, file), 'utf8');
-    const docs = text ? text.split('\n').map((l) => EJSON.parse(l, { relaxed: false })) : [];
-    await conn.db!.createCollection(name).catch(() => undefined);
-    if (docs.length) await conn.db!.collection(name).insertMany(docs, { ordered: true });
+async function restore(pool: Pool, dir: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // Foreign keys are checked at the end of the session's restore, not row by row, so file order does not matter.
+    await client.query(`set session_replication_role = replica`);
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ndjson'))) {
+      const table = file.replace(/\.ndjson$/, '');
+      const text = readFileSync(path.join(dir, file), 'utf8');
+      if (!text) continue;
+      const rows = text.split('\n').map((l) => JSON.parse(l));
+      for (let i = 0; i < rows.length; i += 500) {
+        await client.query(`insert into "${table}" select * from jsonb_populate_recordset(null::"${table}", $1::jsonb)`, [JSON.stringify(rows.slice(i, i + 500))]);
+      }
+    }
+    await client.query(`set session_replication_role = origin`);
+  } finally {
+    client.release();
   }
 }
 
-async function invariants(conn: Connection): Promise<string[]> {
+async function invariants(pool: Pool): Promise<string[]> {
   const problems: string[] = [];
-  const db = conn.db!;
-  for (const i of await db.collection('inventory').find().toArray()) {
-    if (i.available !== i.total - i.sold - i.blocked + (i.overbooked ?? 0) && i.available !== Math.max(0, i.total - i.sold - i.blocked)) problems.push(`inventory ${i._id}: available ${i.available} != total-sold-blocked`);
-    if (i.available < 0 || i.sold < 0 || i.blocked < 0) problems.push(`inventory ${i._id}: negative counter`);
-  }
-  const live = await db.collection('reservations').find({ status: { $in: ['PENDING', 'CONFIRMED', 'CHECKED_IN'] } }).toArray();
-  const expected = new Map<string, number>();
-  for (const r of live) {
-    for (const line of r.reservationRooms ?? []) {
-      for (const n of line.nightlyRates ?? []) {
-        const key = `${line.roomTypeId}|${new Date(n.date).toISOString().slice(0, 10)}`;
-        expected.set(key, (expected.get(key) ?? 0) + line.quantity);
-      }
-    }
-  }
-  const sold = new Map<string, number>();
-  for (const i of await db.collection('inventory').find({ sold: { $gt: 0 } }).toArray()) sold.set(`${i.roomTypeId}|${new Date(i.date).toISOString().slice(0, 10)}`, i.sold);
-  for (const [k, v] of expected) if ((sold.get(k) ?? 0) < v) problems.push(`inventory sold ${sold.get(k) ?? 0} < reservations ${v} for ${k}`);
-  for (const r of await db.collection('reservations').find().toArray()) {
-    const pays = await db.collection('payments').find({ reservationId: r._id, status: { $in: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'] } }).toArray();
-    const paid = pays.reduce((a, p) => a + p.amount, 0);
-    const refunded = pays.reduce((a, p) => a + (p.amountRefunded ?? 0), 0);
-    if (r.paymentStatus !== 'CHANNEL_COLLECTED' && pays.length && r.amountPaid !== paid) problems.push(`reservation ${r.reservationCode}: amountPaid ${r.amountPaid} != payments ${paid}`);
-    if (r.paymentStatus !== 'CHANNEL_COLLECTED' && pays.length && r.amountRefunded !== refunded) problems.push(`reservation ${r.reservationCode}: amountRefunded ${r.amountRefunded} != refunds ${refunded}`);
-    if (r.amountPaid - r.amountRefunded > r.total) problems.push(`reservation ${r.reservationCode}: net paid exceeds total`);
+  const q = async <T extends object>(text: string) => (await pool.query<T>(text)).rows;
+
+  for (const i of await q<{ id: string }>(`select id from inventory where available + sold + blocked <> total + overbooked or available < 0 or sold < 0 or blocked < 0`))
+    problems.push(`inventory ${i.id}: counters out of balance`);
+
+  const live = await q<{ room_type_id: string; day: string; qty: string }>(`
+    select rr.room_type_id, to_char((n.value->>'date')::date, 'YYYY-MM-DD') as day, sum(rr.quantity) as qty
+    from reservations r
+    join reservation_rooms rr on rr.reservation_id = r.id
+    cross join lateral jsonb_array_elements(rr.nightly_rates) n(value)
+    where r.status in ('PENDING','CONFIRMED','CHECKED_IN')
+    group by 1, 2`);
+  const sold = new Map((await q<{ room_type_id: string; day: string; sold: number }>(`select room_type_id, to_char(date, 'YYYY-MM-DD') as day, sold from inventory where sold > 0`)).map((i) => [`${i.room_type_id}|${i.day}`, i.sold]));
+  for (const l of live) if ((sold.get(`${l.room_type_id}|${l.day}`) ?? 0) < Number(l.qty)) problems.push(`inventory sold ${sold.get(`${l.room_type_id}|${l.day}`) ?? 0} < reservations ${l.qty} for ${l.room_type_id} ${l.day}`);
+
+  const pays = await q<{ code: string; amount_paid: string; amount_refunded: string; total: string; payment_status: string; paid: string | null; refunded: string | null; n: string }>(`
+    select r.reservation_code as code, r.amount_paid, r.amount_refunded, r.total, r.payment_status,
+           sum(p.amount) as paid, sum(p.amount_refunded) as refunded, count(p.id) as n
+    from reservations r left join payments p on p.reservation_id = r.id and p.status in ('PAID','PARTIALLY_REFUNDED','REFUNDED')
+    group by r.id`);
+  for (const r of pays) {
+    if (r.payment_status !== 'CHANNEL_COLLECTED' && Number(r.n) > 0 && Number(r.amount_paid) !== Number(r.paid)) problems.push(`reservation ${r.code}: amountPaid ${r.amount_paid} != payments ${r.paid}`);
+    if (r.payment_status !== 'CHANNEL_COLLECTED' && Number(r.n) > 0 && Number(r.amount_refunded) !== Number(r.refunded)) problems.push(`reservation ${r.code}: amountRefunded ${r.amount_refunded} != refunds ${r.refunded}`);
+    if (Number(r.amount_paid) - Number(r.amount_refunded) > Number(r.total)) problems.push(`reservation ${r.code}: net paid exceeds total`);
   }
   return problems;
 }
 
 (async () => {
-  const rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
+  const server = await startEphemeralPg();
   const work = mkdtempSync(path.join(tmpdir(), 'tirvona-restore-drill-'));
   const results: { step: string; ok: boolean; detail?: string }[] = [];
   const step = (name: string, ok: boolean, detail?: string) => {
@@ -93,50 +106,56 @@ async function invariants(conn: Connection): Promise<string[]> {
     console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
   };
   try {
-    const src = await mongoose.createConnection(rs.getUri(), { dbName: 'drill_source', autoIndex: false, autoCreate: false }).asPromise();
-    await setupDatabase(src, { log: () => undefined });
-    await seed(src);
-    const reservation = await src.db!.collection('reservations').findOne({ status: 'CONFIRMED', amountPaid: { $gt: 0 } });
-    step('source database seeded (with at least one paid booking)', !!reservation);
+    const srcPool = createPool({ url: await server.createDatabase('drill_source'), ssl: 'disable', poolMax: 10 });
+    await migrate(srcPool, () => undefined);
+    const srcDb = createDb(srcPool);
+    await seed(srcDb);
+    const paid = await srcPool.query(`select 1 from reservations where status = 'CONFIRMED' and amount_paid > 0 limit 1`);
+    step('source database seeded (with at least one paid booking)', paid.rowCount === 1);
 
-    const before = await invariants(src);
+    const before = await invariants(srcPool);
     step('invariants hold on the source database', before.length === 0, before.slice(0, 3).join('; '));
 
-    const manifest = await backup(src, path.join(work, 'backup'));
+    const manifest = await backup(srcPool, path.join(work, 'backup'));
     const total = Object.values(manifest).reduce((a, m) => a + m.count, 0);
-    step('backup written', total > 0, `${Object.keys(manifest).length} collections, ${total} documents`);
-    await src.dropDatabase();
-    step('source database destroyed', (await src.db!.listCollections().toArray()).length === 0);
-    await src.close();
+    step('backup written', total > 0, `${Object.keys(manifest).length} tables, ${total} rows`);
+    await srcDb.destroy();
+    await server.dropDatabase('drill_source');
+    step('source database destroyed', true);
 
-    const dst = await mongoose.createConnection(rs.getUri(), { dbName: 'drill_restored', autoIndex: false, autoCreate: false }).asPromise();
-    await restore(dst, path.join(work, 'backup'));
+    const dstPool = createPool({ url: await server.createDatabase('drill_restored'), ssl: 'disable', poolMax: 10 });
+    await migrate(dstPool, () => undefined);
+    step('fresh database migrated (constraints and indexes come from the migrations)', (await tablesOf(dstPool)).length === Object.keys(manifest).length);
+    await restore(dstPool, path.join(work, 'backup'));
     const mismatches: string[] = [];
-    const again = await backup(dst, path.join(work, 'verify'));
+    const again = await backup(dstPool, path.join(work, 'verify'));
     for (const [name, m] of Object.entries(manifest)) {
-      if (again[name]?.count !== m.count) mismatches.push(`${name}: ${again[name]?.count} != ${m.count} documents`);
+      if (again[name]?.count !== m.count) mismatches.push(`${name}: ${again[name]?.count} != ${m.count} rows`);
       else if (again[name].hash !== m.hash) mismatches.push(`${name}: content differs`);
     }
-    step('restored data identical to the backup (count and content hash per collection)', mismatches.length === 0, mismatches.slice(0, 3).join('; '));
+    step('restored data identical to the backup (count and content hash per table)', mismatches.length === 0, mismatches.slice(0, 3).join('; '));
 
-    await setupDatabase(dst, { log: () => undefined });
-    step('indexes and validators re-created on the restored database', (await dst.db!.collection('reservations').indexes()).length > 1);
+    const orphans = await dstPool.query(`
+      select conrelid::regclass as t from pg_constraint c where contype = 'f' and not convalidated limit 1`);
+    step('foreign keys still validated on the restored database', orphans.rowCount === 0);
 
-    const after = await invariants(dst);
+    const after = await invariants(dstPool);
     step('invariants hold after the restore', after.length === 0, after.slice(0, 3).join('; '));
 
-    const dup = await dst.db!.collection('reservations').insertOne({ ...(await dst.db!.collection('reservations').findOne({ reservationCode: { $exists: true } }))!, _id: new mongoose.Types.ObjectId() }).then(
-      () => false,
-      () => true,
-    );
+    const dup = await dstPool
+      .query(`insert into reservations select * from jsonb_populate_record(null::reservations, (select to_jsonb(r) || jsonb_build_object('id', gen_random_uuid()) from reservations r limit 1))`)
+      .then(
+        () => false,
+        (e: { code?: string }) => e.code === '23505',
+      );
     step('uniqueness is enforced again after the restore (duplicate reservation code rejected)', dup);
-    await dst.close();
+    await dstPool.end();
   } finally {
-    await rs.stop();
+    await server.stop();
     rmSync(work, { recursive: true, force: true });
   }
   const failed = results.filter((r) => !r.ok).length;
-  console.log(failed ? `\n${failed} step(s) FAILED` : '\nAll restore-drill steps passed (isolated in-memory database).');
+  console.log(failed ? `\n${failed} step(s) FAILED` : '\nAll restore-drill steps passed (isolated embedded PostgreSQL).');
   process.exit(failed ? 1 : 0);
 })().catch((e) => {
   console.error(e);

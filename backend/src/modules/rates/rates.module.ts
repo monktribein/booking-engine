@@ -1,12 +1,11 @@
 import { Body, Controller, Delete, Get, Module, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { PricingService } from './pricing.service';
 import {
   CreatePromotionDto,
@@ -29,7 +28,7 @@ export class RatesController {
   @ApiQuery({ name: 'roomTypeId', required: false })
   @ApiEnvelope(RatePlanDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  list(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Query('roomTypeId') roomTypeId?: string) {
+  list(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query('roomTypeId') roomTypeId?: string) {
     return this.rates.listRatePlans(propertyId, roomTypeId);
   }
 
@@ -38,7 +37,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Create a rate plan for a room type' })
   @ApiEnvelope(RatePlanDto, { status: 201 })
   @ApiStandardErrors({ notFound: true, conflict: 'DUPLICATE' })
-  create(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Body() dto: CreateRatePlanDto) {
+  create(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Body() dto: CreateRatePlanDto) {
     return this.rates.createRatePlan(user, meta, propertyId, dto);
   }
 
@@ -47,7 +46,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Update a rate plan; price changes are pushed to mapped channels asynchronously' })
   @ApiEnvelope(RatePlanDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION' })
-  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdateRatePlanDto) {
+  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateRatePlanDto) {
     return this.rates.updateRatePlan(user, meta, id, dto);
   }
 
@@ -56,7 +55,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Archive a rate plan (existing reservations keep their frozen prices)' })
   @ApiEnvelope(RatePlanDto)
   @ApiStandardErrors({ notFound: true })
-  archive(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  archive(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.rates.archiveRatePlan(user, meta, id);
   }
 
@@ -65,7 +64,7 @@ export class RatesController {
   @ApiOperation({ summary: 'List promo codes' })
   @ApiEnvelope(PromotionDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  listPromotions(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId) {
+  listPromotions(@Param('propertyId', ParseUuidPipe) propertyId: string) {
     return this.rates.listPromotions(propertyId);
   }
 
@@ -74,7 +73,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Create a promo code for the booking engine' })
   @ApiEnvelope(PromotionDto, { status: 201 })
   @ApiStandardErrors({ notFound: true, conflict: 'DUPLICATE' })
-  createPromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Body() dto: CreatePromotionDto) {
+  createPromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Body() dto: CreatePromotionDto) {
     return this.rates.createPromotion(user, meta, propertyId, dto);
   }
 
@@ -83,7 +82,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Update a promo code' })
   @ApiEnvelope(PromotionDto)
   @ApiStandardErrors({ notFound: true })
-  updatePromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdatePromotionDto) {
+  updatePromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdatePromotionDto) {
     return this.rates.updatePromotion(user, meta, id, dto);
   }
 
@@ -92,7 +91,7 @@ export class RatesController {
   @ApiOperation({ summary: 'Deactivate a promo code' })
   @ApiEnvelope(PromotionDto)
   @ApiStandardErrors({ notFound: true })
-  deletePromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  deletePromotion(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.rates.deletePromotion(user, meta, id);
   }
 }

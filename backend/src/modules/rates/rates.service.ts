@@ -1,96 +1,126 @@
 import { Injectable } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
-import { toObjectId } from '../../common/utils';
-import { addDays, todayIn, toDateOnly } from '../../database/common/dates';
-import { isDuplicateKeyError } from '../../database/common/schema-helpers';
-import { runInTransaction } from '../../database/common/transaction';
-import { RatePlanStatus, SyncEntityType, SyncJobType } from '../../database/enums';
+import { toUuid } from '../../common/utils';
+import { addDays, formatDateOnly, todayIn, toDateOnly } from '../../database/common/dates';
+import type { CancellationPolicy, Promotion, RatePlan } from '../../database/db-types';
+import { CancellationPenaltyType, PromotionType, RatePlanStatus, RatePlanType, SyncEntityType, SyncJobType } from '../../database/enums';
 import { ConflictError, DomainValidationError, NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { RatePlan } from '../../database/schemas/property.schema';
-import type { Promotion } from '../../database/schemas/promotion.schema';
+import { Db, InjectDb, isUniqueViolation, j, runInTransaction } from '../../database/kysely';
 import { SyncJobService } from '../../database/services/sync-job.service';
+import { setFrom } from '../../database/sql';
 import { OutboxDispatcher } from '../../jobs/outbox.dispatcher';
 import { AuditLogger } from '../audit/audit.logger';
 import type { CreatePromotionDto, CreateRatePlanDto, UpdatePromotionDto, UpdateRatePlanDto } from './rates.dto';
 
+type PolicyInput = Partial<CancellationPolicy> & { refundable: boolean };
+
+/** Fills the policy defaults the old schema applied (no free window, no penalty). */
+const normalizePolicy = (p: PolicyInput): CancellationPolicy => ({
+  refundable: p.refundable,
+  freeCancellationHours: p.freeCancellationHours ?? 0,
+  penaltyType: p.penaltyType ?? CancellationPenaltyType.NONE,
+  penaltyValue: p.penaltyValue ?? 0,
+  ...(p.description ? { description: p.description } : {}),
+});
+
+function assertPolicyMatchesType(type: string, policy: CancellationPolicy) {
+  if (type === RatePlanType.NON_REFUNDABLE && policy.refundable) {
+    throw new DomainValidationError('NON_REFUNDABLE rate plans cannot have a refundable policy', { fields: { 'cancellationPolicy.refundable': ['must be false for NON_REFUNDABLE plans'] } });
+  }
+}
+
+function assertPromotion(type: string, value: number, validFrom: Date, validTo: Date) {
+  if (validTo <= validFrom) throw new DomainValidationError('validTo must be after validFrom');
+  if (type === PromotionType.PERCENTAGE && value > 100) throw new DomainValidationError('Percentage cannot exceed 100');
+  if (type === PromotionType.FIXED && !Number.isInteger(value)) throw new DomainValidationError('Fixed discount must be in minor units');
+}
+
 @Injectable()
 export class RatesService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() private readonly connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly syncJobs: SyncJobService,
     private readonly outbox: OutboxDispatcher,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   // ------------------------------------------------------------ rate plans
 
-  listRatePlans(propertyId: Types.ObjectId, roomTypeId?: string): Promise<RatePlan[]> {
-    return this.m.RatePlan.find({
-      propertyId,
-      status: { $ne: RatePlanStatus.ARCHIVED },
-      ...(roomTypeId ? { roomTypeId: toObjectId(roomTypeId, 'roomTypeId') } : {}),
-    })
-      .sort({ roomTypeId: 1, basePrice: 1 })
-      .lean();
+  listRatePlans(propertyId: string, roomTypeId?: string): Promise<RatePlan[]> {
+    let q = this.db.selectFrom('ratePlans').selectAll().where('propertyId', '=', propertyId).where('status', '<>', RatePlanStatus.ARCHIVED);
+    if (roomTypeId) q = q.where('roomTypeId', '=', toUuid(roomTypeId, 'roomTypeId'));
+    return q.orderBy('roomTypeId').orderBy('basePrice').execute();
   }
 
-  async createRatePlan(user: AuthUser, meta: RequestMeta, propertyId: Types.ObjectId, dto: CreateRatePlanDto): Promise<RatePlan> {
-    const rtId = toObjectId(dto.roomTypeId, 'roomTypeId');
+  async createRatePlan(user: AuthUser, meta: RequestMeta, propertyId: string, dto: CreateRatePlanDto): Promise<RatePlan> {
+    const rtId = toUuid(dto.roomTypeId, 'roomTypeId');
     const [property, rt] = await Promise.all([
-      this.m.Property.findById(propertyId, { currency: 1 }).lean(),
-      this.m.RoomType.findOne({ _id: rtId, propertyId }, { _id: 1 }).lean(),
+      this.db.selectFrom('properties').select('currency').where('id', '=', propertyId).executeTakeFirst(),
+      this.db.selectFrom('roomTypes').select('id').where('id', '=', rtId).where('propertyId', '=', propertyId).executeTakeFirst(),
     ]);
     if (!property) throw new NotFoundError('Property', propertyId);
     if (!rt) throw new DomainValidationError('roomTypeId must belong to this property');
+    const policy = normalizePolicy(dto.cancellationPolicy);
+    assertPolicyMatchesType(dto.type, policy);
     try {
-      const [rp] = await this.m.RatePlan.create([{ ...dto, roomTypeId: rtId, propertyId, currency: property.currency }]);
-      await this.audit.log({ user, meta }, { action: 'rate_plan.create', entityType: 'RatePlan', entityId: rp._id, propertyId, after: { code: rp.code, basePrice: rp.basePrice } });
-      return rp.toObject();
+      const rp = await this.db
+        .insertInto('ratePlans')
+        .values({
+          propertyId,
+          roomTypeId: rtId,
+          name: dto.name.trim(),
+          code: dto.code.trim().toUpperCase(),
+          type: dto.type,
+          basePrice: dto.basePrice,
+          currency: property.currency,
+          ...(dto.mealPlan ? { mealPlan: dto.mealPlan } : {}),
+          cancellationPolicy: j(policy),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await this.audit.log({ user, meta }, { action: 'rate_plan.create', entityType: 'RatePlan', entityId: rp.id, propertyId, after: { code: rp.code, basePrice: rp.basePrice } });
+      return rp;
     } catch (err) {
-      if (isDuplicateKeyError(err)) throw new ConflictError('DUPLICATE', `Rate plan code ${dto.code} already exists for this room type`);
+      if (isUniqueViolation(err)) throw new ConflictError('DUPLICATE', `Rate plan code ${dto.code} already exists for this room type`);
       throw err;
     }
   }
 
   /** A price or policy change queues a RATES push for the whole horizon to every mapped channel. */
-  async updateRatePlan(user: AuthUser, meta: RequestMeta, id: Types.ObjectId, dto: UpdateRatePlanDto): Promise<RatePlan> {
-    const rp = await this.m.RatePlan.findById(id);
+  async updateRatePlan(user: AuthUser, meta: RequestMeta, id: string, dto: UpdateRatePlanDto): Promise<RatePlan> {
+    const rp = await this.db.selectFrom('ratePlans').selectAll().where('id', '=', id).executeTakeFirst();
     if (!rp) throw new NotFoundError('RatePlan', id);
     if (rp.status === RatePlanStatus.ARCHIVED) throw new ConflictError('INVALID_STATE_TRANSITION', 'Archived rate plans cannot be edited');
     const before = { basePrice: rp.basePrice, status: rp.status, name: rp.name };
-    const property = await this.m.Property.findById(rp.propertyId, { timezone: 1, bookingHorizonDays: 1 }).lean();
-    const result = await runInTransaction(this.connection, async (session) => {
-      const doc = await this.m.RatePlan.findById(id).session(session);
-      doc!.set(dto);
-      await doc!.save({ session });
+    const property = await this.db.selectFrom('properties').select(['timezone', 'bookingHorizonDays']).where('id', '=', rp.propertyId).executeTakeFirstOrThrow();
+    const policy = dto.cancellationPolicy ? normalizePolicy(dto.cancellationPolicy) : rp.cancellationPolicy;
+    assertPolicyMatchesType(dto.type ?? rp.type, policy);
+    const set = setFrom({ ...dto, cancellationPolicy: dto.cancellationPolicy ? policy : undefined }, { json: ['cancellationPolicy'] });
+    const result = await runInTransaction(this.db, async (tx) => {
+      const doc = Object.keys(set).length
+        ? await tx.updateTable('ratePlans').set(set).where('id', '=', id).returningAll().executeTakeFirstOrThrow()
+        : rp;
       if (dto.basePrice !== undefined || dto.status !== undefined) {
-        const today = todayIn(property!.timezone);
-        await this.syncJobs.enqueueForRoomType(session, {
+        const today = todayIn(property.timezone);
+        await this.syncJobs.enqueueForRoomType(tx, {
           propertyId: rp.propertyId,
           roomTypeId: rp.roomTypeId,
           types: [SyncJobType.RATES],
           dateFrom: today,
-          dateTo: addDays(today, property!.bookingHorizonDays),
+          dateTo: addDays(today, property.bookingHorizonDays),
           entityType: SyncEntityType.RATE_PLAN,
-          entityId: rp._id,
+          entityId: rp.id,
         });
       }
-      await this.audit.log({ user, meta }, { action: 'rate_plan.update', entityType: 'RatePlan', entityId: id, propertyId: rp.propertyId, before, after: dto as Record<string, unknown> }, session);
-      return doc!.toObject();
+      await this.audit.log({ user, meta }, { action: 'rate_plan.update', entityType: 'RatePlan', entityId: id, propertyId: rp.propertyId, before, after: dto as Record<string, unknown> }, tx);
+      return doc;
     });
     void this.outbox.flush();
     return result;
   }
 
-  async archiveRatePlan(user: AuthUser, meta: RequestMeta, id: Types.ObjectId): Promise<RatePlan> {
-    const rp = await this.m.RatePlan.findByIdAndUpdate(id, { $set: { status: RatePlanStatus.ARCHIVED } }, { new: true }).lean();
+  async archiveRatePlan(user: AuthUser, meta: RequestMeta, id: string): Promise<RatePlan> {
+    const rp = await this.db.updateTable('ratePlans').set({ status: RatePlanStatus.ARCHIVED }).where('id', '=', id).returningAll().executeTakeFirst();
     if (!rp) throw new NotFoundError('RatePlan', id);
     await this.audit.log({ user, meta }, { action: 'rate_plan.archive', entityType: 'RatePlan', entityId: id, propertyId: rp.propertyId });
     return rp;
@@ -98,45 +128,59 @@ export class RatesService {
 
   // ------------------------------------------------------------ promotions
 
-  listPromotions(propertyId: Types.ObjectId): Promise<Promotion[]> {
-    return this.m.Promotion.find({ propertyId }).sort({ validFrom: -1 }).lean();
+  listPromotions(propertyId: string): Promise<Promotion[]> {
+    return this.db.selectFrom('promotions').selectAll().where('propertyId', '=', propertyId).orderBy('validFrom', 'desc').execute();
   }
 
-  async createPromotion(user: AuthUser, meta: RequestMeta, propertyId: Types.ObjectId, dto: CreatePromotionDto): Promise<Promotion> {
+  async createPromotion(user: AuthUser, meta: RequestMeta, propertyId: string, dto: CreatePromotionDto): Promise<Promotion> {
+    const validFrom = toDateOnly(dto.validFrom);
+    const validTo = toDateOnly(dto.validTo);
+    assertPromotion(dto.type, dto.value, validFrom, validTo);
     try {
-      const [p] = await this.m.Promotion.create([
-        {
-          ...dto,
+      const p = await this.db
+        .insertInto('promotions')
+        .values({
           propertyId,
-          validFrom: toDateOnly(dto.validFrom),
-          validTo: toDateOnly(dto.validTo),
-          roomTypeIds: (dto.roomTypeIds ?? []).map((x) => toObjectId(x, 'roomTypeIds')),
-        },
-      ]);
-      await this.audit.log({ user, meta }, { action: 'promotion.create', entityType: 'Promotion', entityId: p._id, propertyId, after: { code: p.code, type: p.type, value: p.value } });
-      return p.toObject();
+          code: dto.code.trim().toUpperCase(),
+          name: dto.name.trim(),
+          type: dto.type,
+          value: dto.value,
+          validFrom: formatDateOnly(validFrom),
+          validTo: formatDateOnly(validTo),
+          ...(dto.minNights !== undefined ? { minNights: dto.minNights } : {}),
+          roomTypeIds: (dto.roomTypeIds ?? []).map((x) => toUuid(x, 'roomTypeIds')),
+          ...(dto.active !== undefined ? { active: dto.active } : {}),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await this.audit.log({ user, meta }, { action: 'promotion.create', entityType: 'Promotion', entityId: p.id, propertyId, after: { code: p.code, type: p.type, value: p.value } });
+      return p;
     } catch (err) {
-      if (isDuplicateKeyError(err)) throw new ConflictError('DUPLICATE', `Promo code ${dto.code} already exists`);
+      if (isUniqueViolation(err)) throw new ConflictError('DUPLICATE', `Promo code ${dto.code} already exists`);
       throw err;
     }
   }
 
-  async updatePromotion(user: AuthUser, meta: RequestMeta, id: Types.ObjectId, dto: UpdatePromotionDto): Promise<Promotion> {
-    const doc = await this.m.Promotion.findById(id);
+  async updatePromotion(user: AuthUser, meta: RequestMeta, id: string, dto: UpdatePromotionDto): Promise<Promotion> {
+    const doc = await this.db.selectFrom('promotions').selectAll().where('id', '=', id).executeTakeFirst();
     if (!doc) throw new NotFoundError('Promotion', id);
-    doc.set({
-      ...dto,
-      ...(dto.validFrom ? { validFrom: toDateOnly(dto.validFrom) } : {}),
-      ...(dto.validTo ? { validTo: toDateOnly(dto.validTo) } : {}),
-      ...(dto.roomTypeIds ? { roomTypeIds: dto.roomTypeIds.map((x) => toObjectId(x, 'roomTypeIds')) } : {}),
-    });
-    await doc.save();
+    const validFrom = dto.validFrom ? toDateOnly(dto.validFrom) : doc.validFrom;
+    const validTo = dto.validTo ? toDateOnly(dto.validTo) : doc.validTo;
+    assertPromotion(dto.type ?? doc.type, dto.value ?? doc.value, validFrom, validTo);
+    const { validFrom: _f, validTo: _t, roomTypeIds, ...rest } = dto;
+    const set = {
+      ...setFrom(rest),
+      ...(dto.validFrom ? { validFrom: formatDateOnly(validFrom) } : {}),
+      ...(dto.validTo ? { validTo: formatDateOnly(validTo) } : {}),
+      ...(roomTypeIds ? { roomTypeIds: roomTypeIds.map((x) => toUuid(x, 'roomTypeIds')) } : {}),
+    };
+    const updated = Object.keys(set).length ? await this.db.updateTable('promotions').set(set).where('id', '=', id).returningAll().executeTakeFirstOrThrow() : doc;
     await this.audit.log({ user, meta }, { action: 'promotion.update', entityType: 'Promotion', entityId: id, propertyId: doc.propertyId, after: dto as Record<string, unknown> });
-    return doc.toObject();
+    return updated;
   }
 
-  async deletePromotion(user: AuthUser, meta: RequestMeta, id: Types.ObjectId) {
-    const doc = await this.m.Promotion.findByIdAndUpdate(id, { $set: { active: false } }, { new: true }).lean();
+  async deletePromotion(user: AuthUser, meta: RequestMeta, id: string) {
+    const doc = await this.db.updateTable('promotions').set({ active: false }).where('id', '=', id).returningAll().executeTakeFirst();
     if (!doc) throw new NotFoundError('Promotion', id);
     await this.audit.log({ user, meta }, { action: 'promotion.deactivate', entityType: 'Promotion', entityId: id, propertyId: doc.propertyId });
     return doc;

@@ -1,13 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsDate, IsEnum, IsIn, IsMongoId, IsOptional, IsString, Length, MaxLength } from 'class-validator';
-import { Types } from 'mongoose';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDate, IsEnum, IsIn, IsUUID, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta, Roles } from '../../common/decorators';
 import { PaginationQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { API_EVENT_TYPES, API_SCOPES, UserRole, WebhookDeliveryStatus, WebhookEndpointStatus } from '../../database/enums';
 import { ApiKeyService } from './api-key.service';
 import { WebhookEndpointsService } from './webhook-endpoints.service';
@@ -26,7 +25,7 @@ export class CreateApiKeyDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
-  @IsMongoId({ each: true })
+  @IsUUID(undefined, { each: true })
   propertyIds?: string[];
   @ApiPropertyOptional({ description: 'ISO 8601. Omit for a key that does not expire.' }) @IsOptional() @Type(() => Date) @IsDate() expiresAt?: Date;
 }
@@ -60,7 +59,7 @@ export class CreateWebhookEndpointDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(100)
-  @IsMongoId({ each: true })
+  @IsUUID(undefined, { each: true })
   propertyIds?: string[];
 }
 
@@ -68,7 +67,7 @@ export class UpdateWebhookEndpointDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) url?: string;
   @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @IsString({ each: true }) events?: string[];
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) description?: string;
-  @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(100) @IsMongoId({ each: true }) propertyIds?: string[];
+  @ApiPropertyOptional() @IsOptional() @IsArray() @ArrayMaxSize(100) @IsUUID(undefined, { each: true }) propertyIds?: string[];
   @ApiPropertyOptional({ enum: WebhookEndpointStatus }) @IsOptional() @IsEnum(WebhookEndpointStatus) status?: WebhookEndpointStatus;
 }
 
@@ -131,7 +130,7 @@ export class ApiKeysController {
   @ApiOperation({ summary: 'Revoke an API key. Takes effect immediately and cannot be undone.' })
   @ApiEnvelope(ApiKeyDto)
   @ApiStandardErrors({ notFound: true })
-  revoke(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  revoke(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.keys.revoke(user, meta, id);
   }
 }
@@ -162,7 +161,7 @@ export class WebhookEndpointsController {
   @ApiOperation({ summary: 'Change URL, events, properties or status (ACTIVE / DISABLED)' })
   @ApiEnvelope(WebhookEndpointDto)
   @ApiStandardErrors({ notFound: true })
-  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdateWebhookEndpointDto) {
+  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateWebhookEndpointDto) {
     return this.endpoints.update(user, meta, id, dto);
   }
 
@@ -171,7 +170,7 @@ export class WebhookEndpointsController {
   @ApiOperation({ summary: 'Delete an endpoint and its delivery history' })
   @ApiEnvelope(OkDto)
   @ApiStandardErrors({ notFound: true })
-  remove(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  remove(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.endpoints.remove(user, meta, id);
   }
 
@@ -180,7 +179,7 @@ export class WebhookEndpointsController {
   @ApiOperation({ summary: 'Issue a new signing secret. The old one stops working immediately.' })
   @ApiEnvelope(CreatedWebhookEndpointDto)
   @ApiStandardErrors({ notFound: true })
-  rotate(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  rotate(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.endpoints.rotateSecret(user, meta, id);
   }
 
@@ -188,7 +187,7 @@ export class WebhookEndpointsController {
   @HttpCode(202)
   @ApiOperation({ summary: 'Send a signed `ping` event to verify the receiver' })
   @ApiStandardErrors({ notFound: true })
-  test(@CurrentUser() user: AuthUser, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  test(@CurrentUser() user: AuthUser, @Param('id', ParseUuidPipe) id: string) {
     return this.endpoints.sendTest(user, id);
   }
 
@@ -196,7 +195,7 @@ export class WebhookEndpointsController {
   @ApiOperation({ summary: 'Delivery attempts and outcomes for an endpoint, newest first' })
   @ApiEnvelope(WebhookDeliveryDto, { paginated: true })
   @ApiStandardErrors({ notFound: true })
-  deliveries(@CurrentUser() user: AuthUser, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Query() q: DeliveriesQueryDto) {
+  deliveries(@CurrentUser() user: AuthUser, @Param('id', ParseUuidPipe) id: string, @Query() q: DeliveriesQueryDto) {
     return this.endpoints.deliveries(user, id, q);
   }
 
@@ -208,8 +207,8 @@ export class WebhookEndpointsController {
   redeliver(
     @CurrentUser() user: AuthUser,
     @ReqMeta() meta: RequestMeta,
-    @Param('id', ParseObjectIdPipe) id: Types.ObjectId,
-    @Param('deliveryId', ParseObjectIdPipe) deliveryId: Types.ObjectId,
+    @Param('id', ParseUuidPipe) id: string,
+    @Param('deliveryId', ParseUuidPipe) deliveryId: string,
   ) {
     return this.endpoints.redeliver(user, meta, id, deliveryId);
   }

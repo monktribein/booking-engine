@@ -1,11 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection } from 'mongoose';
 import type { AppConfig } from '../../config/configuration';
 import { decryptSecret } from '../../database/common/crypto';
 import { WebhookDeliveryStatus, WebhookEndpointStatus } from '../../database/enums';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
+import { sql } from 'kysely';
 import { JobContext, JobHandler, JobHandlerRegistry, isFinalAttempt, nonRetryable } from '../../jobs/job-handler';
 import { QUEUES } from '../../jobs/queues';
 import { postWebhook, validateWebhookUrl } from './safe-http';
@@ -24,15 +23,11 @@ const RETRY_OWNED_BY_QUEUE_MS = 12 * 3_600_000;
 export class ClientWebhookJobHandler implements JobHandler<'client-webhook'>, OnModuleInit {
   readonly queue = QUEUES.CLIENT_WEBHOOK;
   private readonly logger = new Logger('ClientWebhook');
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly registry: JobHandlerRegistry,
     private readonly config: ConfigService<AppConfig, true>,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   onModuleInit() {
     this.registry.register(this);
@@ -41,20 +36,19 @@ export class ClientWebhookJobHandler implements JobHandler<'client-webhook'>, On
   async handle(ctx: JobContext<'client-webhook'>) {
     const now = new Date();
     // Lease: one worker per delivery at a time.
-    const d = await this.m.WebhookDelivery.findOneAndUpdate(
-      {
-        _id: ctx.data.deliveryId,
-        status: { $in: [WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.RETRYING] },
-        $or: [{ lockedUntil: null }, { lockedUntil: { $lt: now } }],
-      },
-      { $set: { lockedUntil: new Date(now.getTime() + 60_000) }, $inc: { attempts: 1 } },
-      { new: true },
-    ).lean();
+    const d = await this.db
+      .updateTable('webhookDeliveries')
+      .set({ lockedUntil: new Date(now.getTime() + 60_000), attempts: sql<number>`attempts + 1` })
+      .where('id', '=', ctx.data.deliveryId)
+      .where('status', 'in', [WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.RETRYING])
+      .where((w) => w.or([w('lockedUntil', 'is', null), w('lockedUntil', '<', now)]))
+      .returningAll()
+      .executeTakeFirst();
     if (!d) return { status: 'SKIPPED_ALREADY_HANDLED' };
 
-    const endpoint = await this.m.WebhookEndpoint.findById(d.endpointId).select('+secretEncrypted').lean();
+    const endpoint = await this.db.selectFrom('webhookEndpoints').selectAll().where('id', '=', d.endpointId).executeTakeFirst();
     if (!endpoint || endpoint.status !== WebhookEndpointStatus.ACTIVE) {
-      await this.m.WebhookDelivery.updateOne({ _id: d._id }, { $set: { status: WebhookDeliveryStatus.FAILED, lockedUntil: null, lastError: 'Endpoint is disabled or deleted' } });
+      await this.db.updateTable('webhookDeliveries').set({ status: WebhookDeliveryStatus.FAILED, lockedUntil: null, lastError: 'Endpoint is disabled or deleted' }).where('id', '=', d.id).execute();
       return { status: 'SKIPPED_ENDPOINT_INACTIVE' };
     }
 
@@ -77,30 +71,30 @@ export class ClientWebhookJobHandler implements JobHandler<'client-webhook'>, On
         { timeoutMs: webhookTimeoutMs, allowPrivate: webhookAllowPrivateTargets },
       );
       if (res.status < 200 || res.status >= 300) throw new Error(`Endpoint responded with HTTP ${res.status}`);
-      await this.m.WebhookDelivery.updateOne(
-        { _id: d._id },
-        { $set: { status: WebhookDeliveryStatus.DELIVERED, deliveredAt: new Date(), lockedUntil: null, lastStatusCode: res.status, lastError: null as never } },
-      );
+      await this.db
+        .updateTable('webhookDeliveries')
+        .set({ status: WebhookDeliveryStatus.DELIVERED, deliveredAt: new Date(), lockedUntil: null, lastStatusCode: res.status, lastError: null })
+        .where('id', '=', d.id)
+        .execute();
       return { status: 'DELIVERED', ms: Date.now() - started };
     } catch (err) {
       const message = (err as Error).message.slice(0, 500);
       const statusCode = /HTTP (\d{3})/.exec(message)?.[1];
       const final = isFinalAttempt(ctx);
-      await this.m.WebhookDelivery.updateOne(
-        { _id: d._id },
-        {
-          $set: {
-            status: final ? WebhookDeliveryStatus.FAILED : WebhookDeliveryStatus.RETRYING,
-            lockedUntil: null,
-            lastError: message,
-            ...(statusCode ? { lastStatusCode: Number(statusCode) } : {}),
-            ...(final ? {} : { enqueuedAt: new Date(Date.now() + RETRY_OWNED_BY_QUEUE_MS) }),
-          },
-        },
-      );
+      await this.db
+        .updateTable('webhookDeliveries')
+        .set({
+          status: final ? WebhookDeliveryStatus.FAILED : WebhookDeliveryStatus.RETRYING,
+          lockedUntil: null,
+          lastError: message,
+          ...(statusCode ? { lastStatusCode: Number(statusCode) } : {}),
+          ...(final ? {} : { enqueuedAt: new Date(Date.now() + RETRY_OWNED_BY_QUEUE_MS) }),
+        })
+        .where('id', '=', d.id)
+        .execute();
       if (final) {
         // Structured so a log-based alert can count event=client_webhook_failed.
-        this.logger.error({ event: 'client_webhook_failed', deliveryId: String(d._id), endpointId: String(d.endpointId), eventType: d.eventType, attempts: d.attempts, error: message });
+        this.logger.error({ event: 'client_webhook_failed', deliveryId: d.id, endpointId: d.endpointId, eventType: d.eventType, attempts: d.attempts, error: message });
         throw nonRetryable(err);
       }
       throw err;

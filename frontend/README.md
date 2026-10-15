@@ -7,9 +7,9 @@ It talks to the NestJS API in the repository root. It contains no business data 
 
 ```bash
 # 1. a backend (pick one)
-npm run sandbox                    # from the repo root: throw-away in-memory MongoDB + seeded demo property (needs `npm run build` once)
+npm run sandbox                    # from the repo root: throw-away local PostgreSQL + seeded demo property (needs `npm run build` once)
 #    owner login: owner@tirvona.demo / SandboxPass-123   (override with SEED_OWNER_PASSWORD)
-#    or run the API against your own MongoDB replica set (see the root README)
+#    or run the API against your own PostgreSQL / Supabase (see the root README)
 
 # 2. the frontend
 cp .env.example .env.local         # NEXT_PUBLIC_API_URL must point at the API

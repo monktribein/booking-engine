@@ -1,8 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import { Types } from 'mongoose';
 import { DomainValidationError, UnauthorizedError } from '../../database/errors';
+import { isUuid } from '../utils';
 import type { AuthUser, PropertyAccessContext } from '../auth/auth-user';
 import { PROPERTY_ACCESS_KEY, PropertyAccessRule } from './property-access.decorator';
 import { PropertyAccessService } from './property-access.service';
@@ -32,10 +32,10 @@ export class PropertyAccessGuard implements CanActivate {
 
     const source = rule.in === 'param' ? req.params : rule.in === 'query' ? req.query : (req.body as Record<string, unknown>);
     const raw = source?.[rule.key];
-    if (typeof raw !== 'string' || !Types.ObjectId.isValid(raw) || String(new Types.ObjectId(raw)) !== raw.toLowerCase()) {
+    if (!isUuid(raw)) {
       throw new DomainValidationError(`${rule.key} must be a valid id`, { field: rule.key });
     }
-    const propertyId = await this.access.resolvePropertyId(rule.entity, new Types.ObjectId(raw));
+    const propertyId = await this.access.resolvePropertyId(rule.entity, raw.toLowerCase());
     req.propertyAccess = await this.access.assertAccess(req.user, propertyId, rule.permission);
     return true;
   }

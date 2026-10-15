@@ -1,10 +1,9 @@
 import { Controller, Get, Global, Module, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { Connection } from 'mongoose';
+import { sql } from 'kysely';
 import { PropertyAccessGuard } from './common/access/property-access.guard';
 import { PropertyAccessService } from './common/access/property-access.service';
 import { Public } from './common/decorators';
@@ -14,6 +13,7 @@ import { RedisThrottlerStorage } from './common/redis';
 import configuration, { AppConfig } from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { Db, InjectDb } from './database/kysely';
 import { JobsModule } from './jobs/jobs.module';
 import { JobsProducer } from './jobs/jobs.producer';
 import { SchedulerModule } from './jobs/scheduler.module';
@@ -47,20 +47,20 @@ class CommonModule {}
 @Controller('health')
 class HealthController {
   constructor(
-    @InjectConnection() private readonly connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly jobs: JobsProducer,
   ) {}
 
   @Public()
   @SkipThrottle()
   @Get()
-  @ApiOperation({ summary: 'Readiness: MongoDB and the job queue backend are reachable (503 otherwise)' })
+  @ApiOperation({ summary: 'Readiness: PostgreSQL and the job queue backend are reachable (503 otherwise)' })
   async health() {
     const withTimeout = <T>(p: Promise<T>) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000))]);
-    const [mongo, queues] = await Promise.allSettled([withTimeout(this.connection.db!.admin().ping()), withTimeout(this.jobs.stats())]);
+    const [database, queues] = await Promise.allSettled([withTimeout(sql`select 1`.execute(this.db)), withTimeout(this.jobs.stats())]);
     const body = {
-      status: mongo.status === 'fulfilled' && queues.status === 'fulfilled' ? 'ok' : 'degraded',
-      mongo: mongo.status === 'fulfilled' ? 'up' : 'down',
+      status: database.status === 'fulfilled' && queues.status === 'fulfilled' ? 'ok' : 'degraded',
+      database: database.status === 'fulfilled' ? 'up' : 'down',
       queues: queues.status === 'fulfilled' ? 'up' : 'down',
       uptimeSeconds: Math.round(process.uptime()),
     };

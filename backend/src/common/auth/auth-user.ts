@@ -1,19 +1,18 @@
-import type { Types } from 'mongoose';
 import type { PropertyUserRole, UserRole } from '../../database/enums';
 
-/** The authenticated principal attached to `req.user` by JwtAuthGuard. */
+/** The authenticated principal attached to `req.user` by JwtAuthGuard. Ids are uuid strings. */
 export interface AuthUser {
-  userId: Types.ObjectId;
-  organizationId: Types.ObjectId | null;
+  userId: string;
+  organizationId: string | null;
   role: UserRole;
-  sessionId: Types.ObjectId;
+  sessionId: string;
   email: string;
   name: string;
 }
 
 /** Attached to `req.propertyAccess` by PropertyAccessGuard once property membership is proven. */
 export interface PropertyAccessContext {
-  propertyId: Types.ObjectId;
+  propertyId: string;
   /** Role on this property; SUPER_ADMIN for platform admins. */
   role: PropertyUserRole | 'SUPER_ADMIN';
 }

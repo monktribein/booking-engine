@@ -1,22 +1,19 @@
 import { Body, Controller, Get, Injectable, Module, Param, Patch, Post, Query } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags, PartialType, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsEmail, IsEnum, IsMongoId, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
-import { Connection, Types } from 'mongoose';
+import { ArrayMaxSize, IsArray, IsEmail, IsEnum, IsUUID, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, PropertyAccessContext, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, PropertyCtx, ReqMeta } from '../../common/decorators';
 import { IsDateOnly, PropertyScopedPageQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { Page, ParseObjectIdPipe, escapeRegex, pageParams } from '../../common/utils';
+import { Page, ParseUuidPipe, escapeLike, pageParams } from '../../common/utils';
 import { encryptSecret } from '../../database/common/crypto';
-import { toDateOnly } from '../../database/common/dates';
+import type { Guest } from '../../database/db-types';
 import { GuestDocumentType } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { Guest } from '../../database/schemas/guest.schema';
+import { Db, InjectDb, j } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
 
 // ------------------------------------------------------------------ DTOs
@@ -29,7 +26,7 @@ export class GuestDocumentInputDto {
 }
 
 export class CreateGuestDto {
-  @ApiProperty() @IsMongoId() propertyId!: string;
+  @ApiProperty() @IsUUID() propertyId!: string;
   @ApiProperty() @IsString() @Length(1, 100) firstName!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(0, 100) lastName?: string;
   @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
@@ -75,49 +72,64 @@ export class GuestDto {
 
 @Injectable()
 export class GuestsService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
-  async list(propertyId: Types.ObjectId, q: GuestListQueryDto): Promise<Page<Guest>> {
+  async list(propertyId: string, q: GuestListQueryDto): Promise<Page<Guest>> {
     const p = pageParams(q.page, q.limit);
-    const rx = q.q ? new RegExp(escapeRegex(q.q), 'i') : null;
-    // Property-scoped regex search is fine at PMS scale; move to Atlas Search for large guest books.
-    const filter = { propertyId, ...(rx ? { $or: [{ firstName: rx }, { lastName: rx }, { email: rx }, { phone: rx }] } : {}) };
+    let query = this.db.selectFrom('guests').where('propertyId', '=', propertyId);
+    if (q.q?.trim()) {
+      // Property-scoped substring search is fine at PMS scale; add a trigram index (pg_trgm) for very large guest books.
+      const like = `%${escapeLike(q.q.trim())}%`;
+      query = query.where((w) => w.or([w('firstName', 'ilike', like), w('lastName', 'ilike', like), w('email', 'ilike', like), w('phone', 'ilike', like)]));
+    }
     const [items, total] = await Promise.all([
-      this.m.Guest.find(filter).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit).lean(),
-      this.m.Guest.countDocuments(filter),
+      query.selectAll().orderBy('createdAt', 'desc').orderBy('id').offset(p.skip).limit(p.limit).execute(),
+      query.select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow(),
     ]);
-    return { items, page: p.page, limit: p.limit, total };
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
-  async get(id: Types.ObjectId): Promise<Guest> {
-    const g = await this.m.Guest.findById(id).lean();
+  async get(id: string): Promise<Guest> {
+    const g = await this.db.selectFrom('guests').selectAll().where('id', '=', id).executeTakeFirst();
     if (!g) throw new NotFoundError('Guest', id);
     return g;
   }
 
-  async create(user: AuthUser, meta: RequestMeta, propertyId: Types.ObjectId, dto: CreateGuestDto): Promise<Guest> {
-    const { propertyId: _p, documents, ...fields } = dto;
-    const [g] = await this.m.Guest.create([{ ...fields, propertyId, documents: (documents ?? []).map(toStoredDocument) }]);
-    await this.audit.log({ user, meta }, { action: 'guest.create', entityType: 'Guest', entityId: g._id, propertyId });
-    return this.get(g._id);
+  async create(user: AuthUser, meta: RequestMeta, propertyId: string, dto: CreateGuestDto): Promise<Guest> {
+    const g = await this.db
+      .insertInto('guests')
+      .values({
+        propertyId,
+        firstName: dto.firstName.trim(),
+        lastName: dto.lastName?.trim() ?? '',
+        email: dto.email?.trim().toLowerCase() ?? null,
+        phone: dto.phone ?? null,
+        country: dto.country ?? null,
+        documents: j((dto.documents ?? []).map(toStoredDocument)),
+        notes: dto.notes ?? null,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    await this.audit.log({ user, meta }, { action: 'guest.create', entityType: 'Guest', entityId: g.id, propertyId });
+    return g;
   }
 
-  async update(user: AuthUser, meta: RequestMeta, id: Types.ObjectId, dto: UpdateGuestDto): Promise<Guest> {
-    const doc = await this.m.Guest.findById(id);
-    if (!doc) throw new NotFoundError('Guest', id);
-    const { documents, ...fields } = dto;
-    doc.set(fields);
-    if (documents) doc.set('documents', documents.map(toStoredDocument));
-    await doc.save();
+  async update(user: AuthUser, meta: RequestMeta, id: string, dto: UpdateGuestDto): Promise<Guest> {
+    const doc = await this.get(id);
+    const set: Record<string, unknown> = {};
+    if (dto.firstName !== undefined) set.firstName = dto.firstName.trim();
+    if (dto.lastName !== undefined) set.lastName = dto.lastName.trim();
+    if (dto.email !== undefined) set.email = dto.email.trim().toLowerCase();
+    if (dto.phone !== undefined) set.phone = dto.phone;
+    if (dto.country !== undefined) set.country = dto.country;
+    if (dto.notes !== undefined) set.notes = dto.notes;
+    if (dto.documents) set.documents = j(dto.documents.map(toStoredDocument));
+    const updated = Object.keys(set).length ? await this.db.updateTable('guests').set(set).where('id', '=', id).returningAll().executeTakeFirstOrThrow() : doc;
     await this.audit.log({ user, meta }, { action: 'guest.update', entityType: 'Guest', entityId: id, propertyId: doc.propertyId, metadata: { fields: Object.keys(dto) } });
-    return this.get(id);
+    return updated;
   }
 }
 
@@ -127,8 +139,8 @@ function toStoredDocument(d: GuestDocumentInputDto) {
     type: d.type,
     numberEncrypted: encryptSecret(number),
     numberLast4: number.slice(-4),
-    issuingCountry: d.issuingCountry,
-    expiresAt: d.expiresAt ? toDateOnly(d.expiresAt) : undefined,
+    ...(d.issuingCountry ? { issuingCountry: d.issuingCountry } : {}),
+    ...(d.expiresAt ? { expiresAt: d.expiresAt } : {}),
   };
 }
 
@@ -162,7 +174,7 @@ export class GuestsController {
   @ApiOperation({ summary: 'Get a guest' })
   @ApiEnvelope(GuestDto)
   @ApiStandardErrors({ notFound: true })
-  get(@Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  get(@Param('id', ParseUuidPipe) id: string) {
     return this.guests.get(id);
   }
 
@@ -171,7 +183,7 @@ export class GuestsController {
   @ApiOperation({ summary: 'Update a guest' })
   @ApiEnvelope(GuestDto)
   @ApiStandardErrors({ notFound: true })
-  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdateGuestDto) {
+  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateGuestDto) {
     return this.guests.update(user, meta, id, dto);
   }
 }

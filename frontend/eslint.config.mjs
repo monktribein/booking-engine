@@ -9,12 +9,18 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-e2e/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
     // Unused demo fixtures kept for reference only (see lib/fixtures/demo-data.ts)
     "lib/fixtures/**",
   ]),
+  {
+    // Node CommonJS entry scripts (not part of the app bundle) legitimately use require().
+    files: ["scripts/**/*.cjs"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ]);
 
 export default eslintConfig;

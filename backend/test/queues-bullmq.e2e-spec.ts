@@ -38,7 +38,7 @@ suite('BullMQ on real Redis', () => {
   let registry: JobHandlerRegistry;
   let n = 0;
 
-  const notifications = () => t.conn.db!.collection('notifications');
+  const notifications = () => t.db.selectFrom('notifications').selectAll();
   /** A QUEUED notification row that no job has been created for yet (so the test controls when its job exists). */
   const newNotification = async () => {
     const r = await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(3 + 2 * ++n), day(4 + 2 * n))).expect(201);
@@ -63,7 +63,7 @@ suite('BullMQ on real Redis', () => {
     const send = jest.spyOn(LogEmailSender.prototype, 'send');
     await newNotification();
     await t.drain();
-    const rows = await notifications().find({ channel: 'EMAIL' }).toArray();
+    const rows = await notifications().where('channel', '=', 'EMAIL').execute();
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.status === 'SENT')).toBe(true); // no QUEUED leftovers
     expect(send).toHaveBeenCalledTimes(rows.length); // exactly one delivery attempt per notification: no duplicates
@@ -89,7 +89,7 @@ suite('BullMQ on real Redis', () => {
     });
     await newNotification();
     await t.drain();
-    const failedOnce = await notifications().find({ attempts: { $gte: 3 } }).toArray();
+    const failedOnce = await notifications().where('attempts', '>=', 3).execute();
     expect(failedOnce.length).toBeGreaterThanOrEqual(1);
     expect(failedOnce[0]).toMatchObject({ status: 'SENT', attempts: 3, lastError: null });
   });
@@ -99,7 +99,7 @@ suite('BullMQ on real Redis', () => {
     jest.spyOn(LogEmailSender.prototype, 'send').mockRejectedValue(new Error('smtp permanently down'));
     await newNotification();
     await t.drain();
-    const failedRows = await notifications().find({ status: 'FAILED' }).toArray();
+    const failedRows = await notifications().where('status', '=', 'FAILED').execute();
     expect(failedRows.length).toBeGreaterThanOrEqual(1);
     expect(failedRows[0].lastError).toContain('smtp permanently down');
     expect((await counts('notification')).failed).toBeGreaterThan(before);
@@ -157,7 +157,7 @@ suite('BullMQ on real Redis', () => {
     await t.drain();
     const after = await counts('inventory-sync');
     expect(after.completed).toBeGreaterThan(before.completed ?? 0);
-    const jobs = await t.conn.db!.collection('sync_jobs').find({ channel: 'MOCK' }).toArray();
+    const jobs = await t.db.selectFrom('syncJobs').selectAll().where('channel', '=', 'MOCK').execute();
     expect(jobs.length).toBeGreaterThan(0);
     expect(jobs.every((j) => j.status === 'SUCCESS')).toBe(true);
   });

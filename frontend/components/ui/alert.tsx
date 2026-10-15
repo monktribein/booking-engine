@@ -63,6 +63,7 @@ export function Alert({
         <p className="text-xs leading-relaxed opacity-90">{message}</p>
         {action && (
           <button
+            type="button"
             onClick={action.onClick}
             className="mt-2 text-xs font-semibold underline underline-offset-2 hover:opacity-80 cursor-pointer"
           >
@@ -73,6 +74,8 @@ export function Alert({
 
       {onClose && (
         <button
+          type="button"
+          aria-label="Dismiss"
           onClick={onClose}
           className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/5 opacity-70 hover:opacity-100"
         >

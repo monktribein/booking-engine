@@ -1,0 +1,1761 @@
+{
+  "components": {
+    "schemas": {
+      "ApiErrorDetailDto": {
+        "properties": {
+          "code": {
+            "example": "ROOM_NOT_AVAILABLE",
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          },
+          "message": {
+            "example": "The selected room is not available.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiErrorResponseDto": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ApiErrorDetailDto"
+          },
+          "success": {
+            "example": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "error"
+        ],
+        "type": "object"
+      },
+      "AvailabilityResultDto": {
+        "properties": {
+          "availableUnits": {
+            "description": "Rooms free on every night of the stay",
+            "type": "number"
+          },
+          "bookable": {
+            "type": "boolean"
+          },
+          "maxOccupancy": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ratePlans": {
+            "items": {
+              "$ref": "#/components/schemas/RatePlanQuoteDto"
+            },
+            "type": "array"
+          },
+          "reasons": {
+            "description": "Why it is not bookable (min stay, stop sell, CTA...)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "roomTypeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "roomTypeId",
+          "name",
+          "maxOccupancy",
+          "availableUnits",
+          "bookable",
+          "reasons",
+          "ratePlans"
+        ],
+        "type": "object"
+      },
+      "CancelReservationV1Dto": {
+        "properties": {
+          "reason": {
+            "example": "Guest changed plans",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CancelReservationV1ResultDto": {
+        "properties": {
+          "alreadyCancelled": {
+            "type": "boolean"
+          },
+          "refunds": {
+            "description": "Refunds queued per the rate plan's cancellation policy: amount, currency, status",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "reservation": {
+            "$ref": "#/components/schemas/ReservationV1Dto"
+          }
+        },
+        "required": [
+          "reservation",
+          "alreadyCancelled",
+          "refunds"
+        ],
+        "type": "object"
+      },
+      "CheckoutDto": {
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "keyId": {
+            "description": "Public key for Razorpay Checkout",
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "prefill": {
+            "type": "object"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "reservationCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "keyId",
+          "orderId",
+          "amount",
+          "currency",
+          "reservationCode",
+          "prefill"
+        ],
+        "type": "object"
+      },
+      "CreateReservationV1Dto": {
+        "properties": {
+          "adults": {
+            "example": 2,
+            "type": "number"
+          },
+          "checkIn": {
+            "example": "2026-10-05",
+            "type": "string"
+          },
+          "checkOut": {
+            "example": "2026-10-07",
+            "type": "string"
+          },
+          "children": {
+            "example": 0,
+            "type": "number"
+          },
+          "guest": {
+            "$ref": "#/components/schemas/PublicGuestDto"
+          },
+          "promoCode": {
+            "type": "string"
+          },
+          "propertySlug": {
+            "example": "radha-ashram",
+            "type": "string"
+          },
+          "rooms": {
+            "items": {
+              "$ref": "#/components/schemas/PublicRoomDto"
+            },
+            "type": "array"
+          },
+          "specialRequests": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "propertySlug",
+          "checkIn",
+          "checkOut",
+          "adults",
+          "rooms",
+          "guest"
+        ],
+        "type": "object"
+      },
+      "CreateReservationV1ResultDto": {
+        "properties": {
+          "created": {
+            "description": "false when this was an idempotent replay of an earlier request",
+            "type": "boolean"
+          },
+          "payment": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CheckoutDto"
+              }
+            ],
+            "description": "Razorpay Checkout parameters when payment is required; complete payment in the guest's browser, then POST /payments/verify",
+            "nullable": true,
+            "type": "object"
+          },
+          "reservation": {
+            "$ref": "#/components/schemas/ReservationV1Dto"
+          }
+        },
+        "required": [
+          "reservation",
+          "created"
+        ],
+        "type": "object"
+      },
+      "GuestV1Dto": {
+        "properties": {
+          "email": {
+            "nullable": true,
+            "type": "object"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName"
+        ],
+        "type": "object"
+      },
+      "Object": {
+        "properties": {},
+        "type": "object"
+      },
+      "PageMetaDto": {
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "page",
+          "limit",
+          "total"
+        ],
+        "type": "object"
+      },
+      "PaymentResponseDto": {
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "amountRefunded": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "paidAt": {
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "RAZORPAY",
+              "CASH",
+              "BANK_TRANSFER",
+              "CHANNEL_COLLECTED",
+              "OTHER"
+            ],
+            "type": "string"
+          },
+          "providerOrderId": {
+            "type": "string"
+          },
+          "providerPaymentId": {
+            "type": "string"
+          },
+          "refunds": {
+            "items": {
+              "$ref": "#/components/schemas/RefundResponseDto"
+            },
+            "type": "array"
+          },
+          "reservationId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "AUTHORIZED",
+              "PAID",
+              "FAILED",
+              "REFUNDED",
+              "PARTIALLY_REFUNDED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "_id",
+          "reservationId",
+          "provider",
+          "amount",
+          "amountRefunded",
+          "currency",
+          "status"
+        ],
+        "type": "object"
+      },
+      "PropertySummaryV1Dto": {
+        "properties": {
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "currency": {
+            "example": "INR",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "example": "radha-ashram",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "timezone": {
+            "example": "Asia/Kolkata",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "city",
+          "state",
+          "country",
+          "currency",
+          "timezone"
+        ],
+        "type": "object"
+      },
+      "PublicGuestDto": {
+        "properties": {
+          "country": {
+            "example": "IN",
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "example": "+919811111111",
+            "type": "string"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "email",
+          "phone"
+        ],
+        "type": "object"
+      },
+      "PublicPropertyDto": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "amenities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "checkInTime": {
+            "type": "string"
+          },
+          "checkOutTime": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roomTypes": {
+            "items": {
+              "$ref": "#/components/schemas/PublicRoomTypeDto"
+            },
+            "type": "array"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "taxPercent": {
+            "type": "number"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "city",
+          "state",
+          "country",
+          "address",
+          "currency",
+          "timezone",
+          "checkInTime",
+          "checkOutTime",
+          "taxPercent",
+          "amenities",
+          "images",
+          "roomTypes"
+        ],
+        "type": "object"
+      },
+      "PublicRoomDto": {
+        "properties": {
+          "quantity": {
+            "example": 1,
+            "type": "number"
+          },
+          "ratePlanId": {
+            "type": "string"
+          },
+          "roomTypeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "roomTypeId",
+          "ratePlanId",
+          "quantity"
+        ],
+        "type": "object"
+      },
+      "PublicRoomTypeDto": {
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "amenities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "fromPrice": {
+            "description": "Lowest active rate plan price per night",
+            "type": "number"
+          },
+          "images": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "maxOccupancy": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "_id",
+          "name",
+          "maxOccupancy",
+          "amenities",
+          "images",
+          "fromPrice"
+        ],
+        "type": "object"
+      },
+      "RatePlanQuoteDto": {
+        "properties": {
+          "cancellationPolicy": {
+            "type": "object"
+          },
+          "code": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "mealPlan": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nightly": {
+            "type": "number"
+          },
+          "ratePlanId": {
+            "type": "string"
+          },
+          "subtotal": {
+            "type": "number"
+          },
+          "tax": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ratePlanId",
+          "code",
+          "name",
+          "mealPlan",
+          "cancellationPolicy",
+          "nightly",
+          "subtotal",
+          "tax",
+          "total"
+        ],
+        "type": "object"
+      },
+      "RefundResponseDto": {
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "paymentId": {
+            "type": "string"
+          },
+          "providerRefundId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "PROCESSING",
+              "PROCESSED",
+              "FAILED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "_id",
+          "paymentId",
+          "amount",
+          "currency",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ReservationV1Dto": {
+        "properties": {
+          "adults": {
+            "type": "number"
+          },
+          "amountPaid": {
+            "type": "number"
+          },
+          "checkIn": {
+            "example": "2026-10-05",
+            "type": "string"
+          },
+          "checkOut": {
+            "example": "2026-10-07",
+            "type": "string"
+          },
+          "children": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "currency": {
+            "example": "INR",
+            "type": "string"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "guest": {
+            "$ref": "#/components/schemas/GuestV1Dto"
+          },
+          "holdExpiresAt": {
+            "description": "A PENDING booking releases its rooms at this instant unless paid",
+            "nullable": true,
+            "type": "object"
+          },
+          "nights": {
+            "type": "number"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "propertyId": {
+            "type": "string"
+          },
+          "propertyName": {
+            "type": "string"
+          },
+          "propertySlug": {
+            "type": "string"
+          },
+          "reservationCode": {
+            "example": "TRV-7K3M9QXD",
+            "type": "string"
+          },
+          "rooms": {
+            "description": "roomTypeId, roomTypeName, ratePlanId, ratePlan, mealPlan, cancellationPolicy, quantity, total",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source": {
+            "example": "API",
+            "type": "string"
+          },
+          "specialRequests": {
+            "nullable": true,
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "CONFIRMED",
+              "CANCELLED",
+              "CHECKED_IN",
+              "CHECKED_OUT",
+              "NO_SHOW"
+            ],
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Minor units (paise)",
+            "type": "number"
+          },
+          "tax": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "reservationCode",
+          "status",
+          "propertyId",
+          "propertySlug",
+          "propertyName",
+          "checkIn",
+          "checkOut",
+          "nights",
+          "adults",
+          "children",
+          "guest",
+          "rooms",
+          "subtotal",
+          "tax",
+          "discount",
+          "total",
+          "amountPaid",
+          "currency",
+          "paymentStatus",
+          "source",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "VerifyPaymentDto": {
+        "properties": {
+          "razorpayOrderId": {
+            "example": "order_Nxxxxxxxx",
+            "type": "string"
+          },
+          "razorpayPaymentId": {
+            "example": "pay_Nxxxxxxxx",
+            "type": "string"
+          },
+          "razorpaySignature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "razorpayOrderId",
+          "razorpayPaymentId",
+          "razorpaySignature"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "api-key": {
+        "bearerFormat": "API key (tvk_...)",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {},
+    "description": "Server-to-server API for hotel availability, booking and cancellation, with signed webhooks.\n\n**Authentication.** Create an API key in the dashboard (Developers → API keys) and send it as `Authorization: Bearer tvk_...`.\nKeys are secrets: use them from your server only, never in browser or mobile code. A key belongs to one organization,\ncarries scopes (`properties:read`, `availability:read`, `reservations:read`, `reservations:write`) and may be restricted to specific properties.\n\n**Envelope.** Success: `{ \"success\": true, \"data\": ... }`. Failure: `{ \"success\": false, \"error\": { \"code\", \"message\", \"details\"? } }`.\nMoney is an integer in minor units (paise). Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.\n\n**Idempotency.** `POST /v1/reservations` requires an `Idempotency-Key` header. Retrying with the same key and body returns the original booking.\n\n**Rate limits.** Per key; every response carries `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`; `429` adds `Retry-After`.\n\n**Versioning.** The version is in the path. Within v1 we only add fields, endpoints, enum values and event types; clients must ignore unknown fields.\nBreaking changes ship as /v2 with at least 12 months of notice before v1 is retired. Every response carries `X-Tirvona-Api-Version`.\n\n**Webhooks.** Register endpoints in the dashboard. Events (`reservation.created`, `reservation.confirmed`, `reservation.cancelled`, `payment.succeeded`, `payment.failed`) are POSTed as JSON with\n`Tirvona-Signature: t=<unix>,v1=<HMAC-SHA256(secret, \"<t>.<raw body>\")>`, `Tirvona-Event-Id` (deduplicate on it) and `Tirvona-Event-Type`.\nRespond 2xx within 10 s; other responses are retried with exponential backoff (12 attempts over about 17 hours). See docs/PUBLIC_API.md.",
+    "title": "Tirvona Public API",
+    "version": "v1"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/payments/verify": {
+      "post": {
+        "operationId": "PaymentsController_verify",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyPaymentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PaymentResponseDto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "summary": "Verify the Razorpay Checkout signature and capture the payment (guest browser callback)",
+        "tags": [
+          "Payments"
+        ]
+      }
+    },
+    "/v1/properties": {
+      "get": {
+        "operationId": "PublicApiV1Controller_properties",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/PropertySummaryV1Dto"
+                      },
+                      "type": "array"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "List the properties this key can access",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/properties/{slug}": {
+      "get": {
+        "operationId": "PublicApiV1Controller_property",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PublicPropertyDto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Property details with room types and from-prices",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/properties/{slug}/availability": {
+      "get": {
+        "operationId": "PublicApiV1Controller_availability",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "checkIn",
+            "required": true,
+            "schema": {
+              "example": "2026-10-05",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "checkOut",
+            "required": true,
+            "schema": {
+              "example": "2026-10-08",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "adults",
+            "required": true,
+            "schema": {
+              "example": 2,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "children",
+            "required": false,
+            "schema": {
+              "example": 0,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rooms",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "promoCode",
+            "required": false,
+            "schema": {
+              "example": "DIWALI10",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AvailabilityResultDto"
+                      },
+                      "type": "array"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Availability and priced rate plans for a stay (tax, promo discount, restrictions applied)",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/reservations": {
+      "get": {
+        "operationId": "PublicApiV1Controller_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "propertySlug",
+            "required": false,
+            "schema": {
+              "example": "radha-ashram",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "PENDING",
+                "CONFIRMED",
+                "CANCELLED",
+                "CHECKED_IN",
+                "CHECKED_OUT",
+                "NO_SHOW"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Check-in on or after (YYYY-MM-DD)",
+            "in": "query",
+            "name": "checkInFrom",
+            "required": false,
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Check-in on or before (YYYY-MM-DD)",
+            "in": "query",
+            "name": "checkInTo",
+            "required": false,
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Object"
+                }
+              ],
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Object"
+                }
+              ],
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PageMetaDto"
+                        },
+                        {
+                          "properties": {
+                            "items": {
+                              "items": {
+                                "$ref": "#/components/schemas/ReservationV1Dto"
+                              },
+                              "type": "array"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "List reservations (newest first), optionally filtered",
+        "tags": [
+          "Public API v1"
+        ]
+      },
+      "post": {
+        "description": "Reserves inventory atomically. With online payment enabled the booking is a PENDING hold (see `holdExpiresAt`) and `payment` carries the Razorpay Checkout parameters; it is confirmed when payment is captured (you receive `reservation.confirmed`). `Idempotency-Key` is required: retrying with the same key and body returns the original booking (HTTP 200, `created: false`); the same key with a different body is rejected with 422 IDEMPOTENCY_KEY_REUSED.",
+        "operationId": "PublicApiV1Controller_create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "8-100 characters of [A-Za-z0-9_-]. Use a fresh UUID per booking attempt.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReservationV1Dto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateReservationV1ResultDto"
+                }
+              }
+            },
+            "description": "Idempotent replay of an earlier request"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CreateReservationV1ResultDto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "ROOM_NOT_AVAILABLE / RESTRICTION_VIOLATION"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Create a reservation",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/reservations/{code}": {
+      "get": {
+        "operationId": "PublicApiV1Controller_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ReservationV1Dto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Retrieve a reservation by its code",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/reservations/{code}/cancel": {
+      "post": {
+        "description": "Releases the rooms and queues the refund the rate plan's cancellation policy allows. Cancelling an already cancelled reservation succeeds with `alreadyCancelled: true`.",
+        "operationId": "PublicApiV1Controller_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReservationV1Dto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/CancelReservationV1ResultDto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "INVALID_STATE_TRANSITION"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Cancel a reservation",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    }
+  },
+  "servers": [],
+  "tags": []
+}

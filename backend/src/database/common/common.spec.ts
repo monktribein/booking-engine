@@ -1,6 +1,6 @@
-import { Types } from 'mongoose';
+import { randomUUID } from 'node:crypto';
 import { PricingService } from '../../modules/rates/pricing.service';
-import { PromotionType } from '../schemas/promotion.schema';
+import { PromotionType } from '../enums';
 import { eachNight, localDateTimeToInstant, toDateOnly } from './dates';
 import { percentOf } from './money';
 import { REDACTED, redactSecrets } from './redact';
@@ -62,11 +62,11 @@ describe('secret redaction', () => {
 });
 
 describe('pricing', () => {
-  const rt = new Types.ObjectId();
+  const rt = randomUUID();
   it('percent discount on eligible lines; fixed discount capped at the total', () => {
     expect(PricingService.discountFor({ type: PromotionType.PERCENTAGE, value: 10, roomTypeIds: [] }, [{ roomTypeId: rt, total: 735000 }])).toBe(73500);
     expect(PricingService.discountFor({ type: PromotionType.FIXED, value: 900000, roomTypeIds: [] }, [{ roomTypeId: rt, total: 735000 }])).toBe(735000);
-    expect(PricingService.discountFor({ type: PromotionType.PERCENTAGE, value: 10, roomTypeIds: [new Types.ObjectId()] }, [{ roomTypeId: rt, total: 735000 }])).toBe(0);
+    expect(PricingService.discountFor({ type: PromotionType.PERCENTAGE, value: 10, roomTypeIds: [randomUUID()] }, [{ roomTypeId: rt, total: 735000 }])).toBe(0);
   });
   it('rounds money half-up in minor units', () => {
     expect(percentOf(333, 5)).toBe(17);

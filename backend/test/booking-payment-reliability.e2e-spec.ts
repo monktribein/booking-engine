@@ -39,10 +39,12 @@ describe('Public booking + payment reliability', () => {
     return t.http().post('/payments/webhook').set(w.headers).send(w.raw);
   };
   const lookup = async (code: string, email = 'guest@example.com') => (await t.http().get(`/public/reservations/${code}`).query({ email }).expect(200)).body.data;
-  const reservationDoc = (code: string) => t.conn.db!.collection('reservations').findOne({ reservationCode: code });
+  const reservationDoc = (code: string) => t.db.selectFrom('reservations').selectAll().where('reservationCode', '=', code).executeTakeFirst();
+  const countNotifications = async (reservationId: string, type: string) =>
+    Number((await t.db.selectFrom('notifications').select((eb) => eb.fn.countAll<string>().as('n')).where('reservationId', '=', reservationId).where('type', '=', type).executeTakeFirstOrThrow()).n);
   const paymentsOf = async (code: string) => {
     const r = await reservationDoc(code);
-    return t.conn.db!.collection('payments').find({ reservationId: r!._id }).toArray();
+    return t.db.selectFrom('payments').selectAll().where('reservationId', '=', r!.id).orderBy('createdAt').execute();
   };
   const sold = async (from: string, to: string) => (await inventoryFor(t, owner.token, s, from, to)).map((d) => d.sold);
   const orders = () => rzp.calls.filter((c) => c.path === '/v1/orders').length;
@@ -62,7 +64,7 @@ describe('Public booking + payment reliability', () => {
     const { reservation } = await hold(day(3), day(5));
     expect(reservation.status).toBe('PENDING');
     const doc = await reservationDoc(reservation.reservationCode);
-    const minutes = (new Date(doc!.holdExpiresAt).getTime() - Date.now()) / 60_000;
+    const minutes = (new Date(doc!.holdExpiresAt!).getTime() - Date.now()) / 60_000;
     expect(minutes).toBeGreaterThan(19);
     expect(minutes).toBeLessThanOrEqual(20.1);
     expect(await sold(day(3), day(5))).toEqual([1, 1]);
@@ -89,8 +91,8 @@ describe('Public booking + payment reliability', () => {
     const doc = await reservationDoc(reservation.reservationCode);
     expect(doc).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID', amountPaid: reservation.total, holdExpiresAt: null });
     // one confirmation and one receipt for the guest, no matter how many callbacks arrived
-    expect(await t.conn.db!.collection('notifications').countDocuments({ reservationId: doc!._id, type: 'RESERVATION_CONFIRMED' })).toBe(1);
-    expect(await t.conn.db!.collection('notifications').countDocuments({ reservationId: doc!._id, type: 'PAYMENT_SUCCESS' })).toBe(1);
+    expect(await countNotifications(doc!.id, 'RESERVATION_CONFIRMED')).toBe(1);
+    expect(await countNotifications(doc!.id, 'PAYMENT_SUCCESS')).toBe(1);
     expect(await sold(day(6), day(8))).toEqual([1, 1]); // paying does not sell the room a second time
     expect((await lookup(reservation.reservationCode)).status).toBe('CONFIRMED');
   });
@@ -204,15 +206,15 @@ describe('Public booking + payment reliability', () => {
   it('refund rules: an unpaid order cannot be refunded; a paid one refunds at most what was paid, via the gateway', async () => {
     const { reservation, payment } = await hold(day(27), day(28));
     const [unpaid] = await paymentsOf(reservation.reservationCode);
-    const early = await t.http().post(`/payments/${unpaid._id}/refund`).set(bearer(owner.token)).send({ reason: 'x' });
+    const early = await t.http().post(`/payments/${unpaid.id}/refund`).set(bearer(owner.token)).send({ reason: 'x' });
     expect(early.status).toBe(409);
     expect(early.body.error.code).toBe('INVALID_STATE_TRANSITION');
 
     await verify(payment.orderId, 'pay_REFUND0001').expect(200);
-    const over = await t.http().post(`/payments/${unpaid._id}/refund`).set(bearer(owner.token)).send({ amount: reservation.total + 1, reason: 'too much' });
+    const over = await t.http().post(`/payments/${unpaid.id}/refund`).set(bearer(owner.token)).send({ amount: reservation.total + 1, reason: 'too much' });
     expect(over.status).toBe(422);
     const callsBefore = rzp.calls.filter((c) => c.path.endsWith('/refund')).length;
-    await t.http().post(`/payments/${unpaid._id}/refund`).set(bearer(owner.token)).send({ reason: 'goodwill' }).expect(201);
+    await t.http().post(`/payments/${unpaid.id}/refund`).set(bearer(owner.token)).send({ reason: 'goodwill' }).expect(201);
     await t.drain();
     expect(rzp.calls.filter((c) => c.path.endsWith('/refund')).length).toBe(callsBefore + 1); // mocked gateway: no real money moves
     expect((await paymentsOf(reservation.reservationCode))[0]).toMatchObject({ status: 'REFUNDED', amountRefunded: reservation.total });

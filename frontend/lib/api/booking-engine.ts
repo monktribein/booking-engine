@@ -1,9 +1,17 @@
 import { apiClient } from './client';
 import { mapAvailability, mapPublicBookingResult, mapPublicProperty, mapPublicReservationView } from './mappers';
-import { PublicAvailabilityItem, PublicBookingInput, PublicBookingResult, PublicPropertyData, PublicReservationView } from '@/types';
+import { PublicAvailabilityItem, PublicBookingInput, PublicBookingResult, PublicPropertyData, PublicPropertySearchParams, PublicPropertySearchResult, PublicReservationView } from '@/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const bookingEngineApi = {
+  /** Cross-property search for the guest site. With dates, only properties that can host the stay are returned. */
+  searchProperties({ amenities, ...params }: PublicPropertySearchParams): Promise<PublicPropertySearchResult> {
+    return apiClient<PublicPropertySearchResult>('/public/properties', {
+      params: { ...params, amenities: amenities?.length ? amenities.join(',') : undefined, limit: 12 },
+      skipAuth: true,
+    });
+  },
+
   async getPublicProperty(slug: string): Promise<PublicPropertyData> {
     return mapPublicProperty(await apiClient<any>(`/public/properties/${slug}`, { skipAuth: true }));
   },

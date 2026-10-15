@@ -48,7 +48,7 @@ describe('Structured logs', () => {
     out.length = 0;
     await t.http().get('/health').expect(200);
     await t.http().get(`/properties/${s.propertyId}/room-types`).set(bearer(owner.token)).expect(200);
-    await t.http().get('/properties/000000000000000000000000').set(bearer(owner.token)).expect(404);
+    await t.http().get('/properties/00000000-0000-4000-8000-000000000000').set(bearer(owner.token)).expect(404);
     const http = entries().filter((e) => e.event === 'http_request');
     expect(http.find((e) => e.route === '/health')).toBeUndefined();
     const ok = http.find((e) => String(e.route).endsWith('/properties/:propertyId/room-types'))!;

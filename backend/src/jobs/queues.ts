@@ -13,7 +13,7 @@ export const QUEUES = {
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 export const ALL_QUEUES: QueueName[] = Object.values(QUEUES);
 
-/** Job payloads. Jobs carry ids only: workers always re-read current state from MongoDB. */
+/** Job payloads. Jobs carry ids only: workers always re-read current state from PostgreSQL. */
 export interface JobPayloads {
   'webhook-processing': { webhookEventId: string };
   'inventory-sync': { syncJobId: string };

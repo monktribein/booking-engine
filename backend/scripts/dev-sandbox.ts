@@ -1,5 +1,5 @@
 /**
- * Local integration sandbox: an in-memory MongoDB replica set, seeded with the Radha Ashram demo data,
+ * Local integration sandbox: a throwaway PostgreSQL server (embedded-postgres), seeded with the Radha Ashram demo data,
  * and the built API on top of it. Nothing outside this process is touched (your .env database is NOT used).
  *
  *   npm run build && npx tsx scripts/dev-sandbox.ts
@@ -10,15 +10,16 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { startEphemeralPg } from './embedded-pg';
 
 async function main() {
   if (process.env.NODE_ENV === 'production') throw new Error('The sandbox must never run in production');
-  const rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
+  const pg = await startEphemeralPg();
+  const databaseUrl = await pg.createDatabase('tirvona_sandbox');
   const env = {
     ...process.env,
-    MONGODB_URI: rs.getUri(),
-    MONGODB_DB: 'tirvona_sandbox',
+    DATABASE_URL: databaseUrl,
+    DATABASE_SSL: 'disable',
     NODE_ENV: 'development',
     QUEUE_DRIVER: 'inline',
     PORT: process.env.PORT ?? '3000',
@@ -33,14 +34,13 @@ async function main() {
     BOOKING_ENGINE_REQUIRE_PAYMENT: process.env.SANDBOX_REQUIRE_PAYMENT ?? 'true',
   };
 
-  // Async on purpose: spawnSync would block this process's event loop, which is also what drains
-  // mongod's piped log output, so mongod would freeze mid-index-build.
+  // Async on purpose: spawnSync would block this process's event loop, which also serves the embedded server's log pipes.
   for (const script of ['scripts/seed.ts']) {
     const code = await new Promise<number | null>((resolve) => {
       spawn(process.execPath, ['--import', 'tsx', script], { env, stdio: 'inherit' }).on('exit', resolve);
     });
     if (code !== 0) {
-      await rs.stop();
+      await pg.stop();
       throw new Error(`${script} failed`);
     }
   }
@@ -48,7 +48,7 @@ async function main() {
   const api = spawn(process.execPath, ['--require', path.resolve(__dirname, 'sandbox-razorpay-shim.cjs'), 'dist/src/main.js'], { env, stdio: 'inherit' });
   const shutdown = async () => {
     api.kill();
-    await rs.stop();
+    await pg.stop();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

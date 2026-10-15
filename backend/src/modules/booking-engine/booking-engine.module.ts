@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Headers, Injectable, Module, Param, Post, Query } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiHeader, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
@@ -11,7 +10,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
-  IsMongoId,
+  IsUUID,
   IsOptional,
   IsString,
   Length,
@@ -20,19 +19,18 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Connection, Types } from 'mongoose';
 import type { RequestMeta } from '../../common/auth/auth-user';
 import { Public, ReqMeta } from '../../common/decorators';
 import { IsDateOnly } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { toObjectId } from '../../common/utils';
+import { toUuid } from '../../common/utils';
 import type { AppConfig } from '../../config/configuration';
 import { toDateOnly } from '../../database/common/dates';
 import { percentOf } from '../../database/common/money';
 import { PaymentProvider, PaymentStatus, PropertyStatus, RatePlanStatus, ReservationSource, ReservationStatus, RoomTypeStatus } from '../../database/enums';
 import { DomainValidationError, NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { Reservation } from '../../database/schemas/reservation.schema';
+import { Db, InjectDb } from '../../database/kysely';
+import { Reservation, findReservation } from '../../database/reservation-store';
 import { AvailabilityService } from '../../database/services/availability.service';
 import { ReservationService } from '../../database/services/reservation.service';
 import { OutboxDispatcher } from '../../jobs/outbox.dispatcher';
@@ -41,6 +39,7 @@ import { CheckoutDto, PaymentsModule } from '../payments/payments.module';
 import { PaymentsService } from '../payments/payments.service';
 import { PricingService } from '../rates/pricing.service';
 import { RatesModule } from '../rates/rates.module';
+import { PropertySearchQueryDto, PropertySearchResultDto, PropertySearchService } from './property-search';
 
 // ------------------------------------------------------------------ DTOs
 
@@ -57,8 +56,8 @@ class PublicGuestDto {
 }
 
 class PublicRoomDto {
-  @ApiProperty() @IsMongoId() roomTypeId!: string;
-  @ApiProperty() @IsMongoId() ratePlanId!: string;
+  @ApiProperty() @IsUUID() roomTypeId!: string;
+  @ApiProperty() @IsUUID() ratePlanId!: string;
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(10) quantity!: number;
 }
 
@@ -143,7 +142,7 @@ export class PublicBookingResultDto {
 /** How a booking was made when it is not the public website: the public API passes its tenant and source. */
 export interface BookingContext {
   /** The property must belong to this organization (tenant isolation); otherwise it is reported as not found. */
-  organizationId?: Types.ObjectId;
+  organizationId?: string;
   source?: ReservationSource;
   channel?: string;
 }
@@ -151,37 +150,34 @@ export interface BookingContext {
 // ------------------------------------------------------------------ service
 
 /**
- * The guest-facing booking engine (property website and Tirvona marketplace).
- * It shares inventory, pricing and the reservation transaction with the PMS,
- * so there is exactly one path by which a room can be sold.
+ * The guest-facing booking engine (property website and Tirvona marketplace). It shares inventory, pricing and the
+ * reservation transaction with the PMS, so there is exactly one path by which a room can be sold.
  */
 @Injectable()
 export class BookingEngineService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly availability: AvailabilityService,
     private readonly reservations: ReservationService,
     private readonly pricing: PricingService,
     private readonly payments: PaymentsService,
     private readonly outbox: OutboxDispatcher,
     private readonly config: ConfigService<AppConfig, true>,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
-  private async propertyBySlug(slug: string, organizationId?: Types.ObjectId) {
-    const p = await this.m.Property.findOne({ slug, status: PropertyStatus.ACTIVE, ...(organizationId ? { organizationId } : {}) }).lean();
+  private async propertyBySlug(slug: string, organizationId?: string) {
+    let q = this.db.selectFrom('properties').selectAll().where('slug', '=', slug).where('status', '=', PropertyStatus.ACTIVE);
+    if (organizationId) q = q.where('organizationId', '=', organizationId);
+    const p = await q.executeTakeFirst();
     if (!p) throw new NotFoundError('Property', slug);
     return p;
   }
 
-  async property(slug: string, organizationId?: Types.ObjectId) {
+  async property(slug: string, organizationId?: string) {
     const p = await this.propertyBySlug(slug, organizationId);
     const [roomTypes, ratePlans] = await Promise.all([
-      this.m.RoomType.find({ propertyId: p._id, status: RoomTypeStatus.ACTIVE, totalRooms: { $gt: 0 } }).sort({ sortOrder: 1 }).lean(),
-      this.m.RatePlan.find({ propertyId: p._id, status: RatePlanStatus.ACTIVE }, { roomTypeId: 1, basePrice: 1 }).lean(),
+      this.db.selectFrom('roomTypes').selectAll().where('propertyId', '=', p.id).where('status', '=', RoomTypeStatus.ACTIVE).where('totalRooms', '>', 0).orderBy('sortOrder').orderBy('name').execute(),
+      this.db.selectFrom('ratePlans').select(['roomTypeId', 'basePrice']).where('propertyId', '=', p.id).where('status', '=', RatePlanStatus.ACTIVE).execute(),
     ]);
     return {
       slug: p.slug,
@@ -201,23 +197,24 @@ export class BookingEngineService {
       amenities: p.amenities,
       images: p.images,
       roomTypes: roomTypes.map((rt) => ({
-        _id: rt._id,
+        // The public contract names the room type id `_id` (the v1 API passes this object through unchanged).
+        _id: rt.id,
         name: rt.name,
         description: rt.description,
         maxOccupancy: rt.maxOccupancy,
         amenities: rt.amenities,
         images: rt.images,
-        fromPrice: Math.min(...ratePlans.filter((r) => r.roomTypeId.equals(rt._id)).map((r) => r.basePrice), rt.basePrice),
+        fromPrice: Math.min(...ratePlans.filter((r) => r.roomTypeId === rt.id).map((r) => r.basePrice), rt.basePrice),
       })),
     };
   }
 
   /** Room availability + rate + tax + discount + restriction reasons for a stay. */
-  async search(slug: string, q: PublicAvailabilityQueryDto, organizationId?: Types.ObjectId) {
+  async search(slug: string, q: PublicAvailabilityQueryDto, organizationId?: string) {
     const p = await this.propertyBySlug(slug, organizationId);
-    const results = await this.availability.search({ propertyId: p._id, checkIn: q.checkIn, checkOut: q.checkOut, adults: q.adults, children: q.children, rooms: q.rooms });
+    const results = await this.availability.search({ propertyId: p.id, checkIn: q.checkIn, checkOut: q.checkOut, adults: q.adults, children: q.children, rooms: q.rooms });
     if (!q.promoCode) return results;
-    const promo = await this.pricing.resolvePromotion(p._id, q.promoCode, toDateOnly(q.checkIn), toDateOnly(q.checkOut));
+    const promo = await this.pricing.resolvePromotion(p.id, q.promoCode, toDateOnly(q.checkIn), toDateOnly(q.checkOut));
     return results.map((rt) => ({
       ...rt,
       ratePlans: rt.ratePlans.map((rp) => {
@@ -232,20 +229,21 @@ export class BookingEngineService {
     const checkIn = toDateOnly(dto.checkIn);
     const checkOut = toDateOnly(dto.checkOut);
     const rooms = dto.rooms.map((r) => ({
-      roomTypeId: toObjectId(r.roomTypeId, 'roomTypeId'),
-      ratePlanId: toObjectId(r.ratePlanId, 'ratePlanId'),
+      roomTypeId: toUuid(r.roomTypeId, 'roomTypeId'),
+      ratePlanId: toUuid(r.ratePlanId, 'ratePlanId'),
       quantity: r.quantity,
     }));
 
     let discount = 0;
     if (dto.promoCode) {
-      const promo = await this.pricing.resolvePromotion(p._id, dto.promoCode, checkIn, checkOut);
+      const promo = await this.pricing.resolvePromotion(p.id, dto.promoCode, checkIn, checkOut);
       // Discount on the server-computed price, never on anything the client sends.
-      const plans = await this.m.RatePlan.find({ _id: { $in: rooms.map((r) => r.ratePlanId) }, propertyId: p._id }, { basePrice: 1 }).lean();
-      const price = new Map(plans.map((x) => [String(x._id), x.basePrice]));
+      const planIds = [...new Set(rooms.map((r) => r.ratePlanId))];
+      const plans = await this.db.selectFrom('ratePlans').select(['id', 'basePrice']).where('id', 'in', planIds).where('propertyId', '=', p.id).execute();
+      const price = new Map(plans.map((x) => [x.id, x.basePrice]));
       const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000);
       const lines = rooms.map((r) => {
-        const sub = (price.get(String(r.ratePlanId)) ?? 0) * nights * r.quantity;
+        const sub = (price.get(r.ratePlanId) ?? 0) * nights * r.quantity;
         return { roomTypeId: r.roomTypeId, total: sub + percentOf(sub, p.taxPercent) };
       });
       discount = PricingService.discountFor(promo, lines);
@@ -256,7 +254,7 @@ export class BookingEngineService {
       throw new DomainValidationError('Online booking is temporarily unavailable (payments not configured)');
     }
     const { reservation, created } = await this.reservations.createReservation({
-      propertyId: p._id,
+      propertyId: p.id,
       source: ctx.source ?? (dto.source === 'TIRVONA' ? ReservationSource.TIRVONA : ReservationSource.DIRECT),
       idempotencyKey,
       // With online payment the booking is a PENDING hold until the payment is captured.
@@ -276,11 +274,11 @@ export class BookingEngineService {
     let payment = null;
     if (requirePayment && reservation.status === ReservationStatus.PENDING && reservation.total > 0) {
       // Idempotent replay: reuse the order created by the first request.
-      const existing = await this.m.Payment.findOne({ reservationId: reservation._id, status: PaymentStatus.PENDING }).lean();
+      const existing = await this.db.selectFrom('payments').selectAll().where('reservationId', '=', reservation.id).where('status', '=', PaymentStatus.PENDING).orderBy('createdAt').limit(1).executeTakeFirst();
       payment = existing?.providerOrderId
         ? {
             provider: existing.provider,
-            keyId: this.payments.gateway(existing.provider).publicKey(),
+            keyId: this.payments.gateway(existing.provider as PaymentProvider).publicKey(),
             orderId: existing.providerOrderId,
             amount: existing.amount,
             currency: existing.currency,
@@ -294,9 +292,9 @@ export class BookingEngineService {
 
   /** Guests look up their booking with the code plus the email used to book. */
   async lookup(code: string, email: string) {
-    const r = await this.m.Reservation.findOne({ reservationCode: code.toUpperCase() }).lean();
+    const r = await findReservation(this.db, { reservationCode: code });
     if (!r || !r.guest.email || r.guest.email !== email.trim().toLowerCase()) throw new NotFoundError('Reservation', code);
-    const p = await this.m.Property.findById(r.propertyId, { name: 1 }).lean();
+    const p = await this.db.selectFrom('properties').select('name').where('id', '=', r.propertyId).executeTakeFirst();
     return this.publicView(r, p?.name ?? '');
   }
 
@@ -329,7 +327,22 @@ export class BookingEngineService {
 @Throttle({ default: { limit: 60, ttl: 60_000 } })
 @Controller('public')
 export class BookingEngineController {
-  constructor(private readonly engine: BookingEngineService) {}
+  constructor(
+    private readonly engine: BookingEngineService,
+    private readonly propertySearch: PropertySearchService,
+  ) {}
+
+  @Get('properties')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Search bookable properties (destination, dates, guests, price, amenities)',
+    description: 'With checkIn + checkOut only properties that can host the stay are returned, priced for it. Looks at up to 100 matching properties per request.',
+  })
+  @ApiEnvelope(PropertySearchResultDto)
+  @ApiStandardErrors({ auth: false })
+  searchProperties(@Query() q: PropertySearchQueryDto) {
+    return this.propertySearch.search(q);
+  }
 
   @Get('properties/:slug')
   @ApiOperation({ summary: 'Public property page data: details, room types, from-prices' })
@@ -376,7 +389,7 @@ export class BookingEngineController {
 @Module({
   imports: [RatesModule, PaymentsModule],
   controllers: [BookingEngineController],
-  providers: [BookingEngineService],
+  providers: [BookingEngineService, PropertySearchService],
   exports: [BookingEngineService],
 })
 export class BookingEngineModule {}

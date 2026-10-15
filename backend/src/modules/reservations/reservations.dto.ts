@@ -7,7 +7,7 @@ import {
   IsEmail,
   IsEnum,
   IsInt,
-  IsMongoId,
+  IsUUID,
   IsOptional,
   IsString,
   Length,
@@ -28,8 +28,8 @@ export class GuestInputDto {
 }
 
 export class ReservationRoomInputDto {
-  @ApiProperty() @IsMongoId() roomTypeId!: string;
-  @ApiProperty() @IsMongoId() ratePlanId!: string;
+  @ApiProperty() @IsUUID() roomTypeId!: string;
+  @ApiProperty() @IsUUID() ratePlanId!: string;
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(20) quantity!: number;
   @ApiPropertyOptional({ type: [Number], description: 'Staff price override, one per night (minor units)' })
   @IsOptional()
@@ -50,9 +50,9 @@ export const STAFF_SOURCES = [
 ] as const;
 
 export class CreateReservationDto {
-  @ApiProperty() @IsMongoId() propertyId!: string;
+  @ApiProperty() @IsUUID() propertyId!: string;
   @ApiProperty({ enum: STAFF_SOURCES }) @IsEnum(STAFF_SOURCES) source!: ReservationSource;
-  @ApiPropertyOptional({ description: 'Existing guest; otherwise pass `guest`' }) @IsOptional() @IsMongoId() guestId?: string;
+  @ApiPropertyOptional({ description: 'Existing guest; otherwise pass `guest`' }) @IsOptional() @IsUUID() guestId?: string;
   @ApiPropertyOptional({ type: GuestInputDto }) @IsOptional() @ValidateNested() @Type(() => GuestInputDto) guest?: GuestInputDto;
   @ApiProperty({ example: '2026-10-05' }) @IsDateOnly() checkIn!: string;
   @ApiProperty({ example: '2026-10-08' }) @IsDateOnly() checkOut!: string;
@@ -92,8 +92,8 @@ export class CancelReservationDto {
 }
 
 export class RoomAssignmentDto {
-  @ApiProperty() @IsMongoId() reservationRoomId!: string;
-  @ApiProperty() @IsMongoId() roomId!: string;
+  @ApiProperty() @IsUUID() reservationRoomId!: string;
+  @ApiProperty() @IsUUID() roomId!: string;
 }
 
 export class CheckInDto {

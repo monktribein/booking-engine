@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsMongoId, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsUUID, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import { IsDateOnly } from '../../common/dto';
 import { InventoryBlockReason, InventoryBlockStatus } from '../../database/enums';
 
@@ -13,9 +13,9 @@ export class AvailabilityQueryDto {
 }
 
 export class CreateBlockDto {
-  @ApiProperty() @IsMongoId() propertyId!: string;
-  @ApiProperty() @IsMongoId() roomTypeId!: string;
-  @ApiPropertyOptional({ description: 'Block one specific physical room (quantity is then 1)' }) @IsOptional() @IsMongoId() roomId?: string;
+  @ApiProperty() @IsUUID() propertyId!: string;
+  @ApiProperty() @IsUUID() roomTypeId!: string;
+  @ApiPropertyOptional({ description: 'Block one specific physical room (quantity is then 1)' }) @IsOptional() @IsUUID() roomId?: string;
   @ApiProperty({ example: '2026-10-05' }) @IsDateOnly() startDate!: string;
   @ApiProperty({ example: '2026-10-08', description: 'Exclusive' }) @IsDateOnly() endDate!: string;
   @ApiPropertyOptional({ default: 1 }) @IsOptional() @IsInt() @Min(1) @Max(5000) quantity?: number;
@@ -36,7 +36,7 @@ export class InventoryBlockDto {
 }
 
 export class SetRestrictionsDto {
-  @ApiProperty() @IsMongoId() roomTypeId!: string;
+  @ApiProperty() @IsUUID() roomTypeId!: string;
   @ApiProperty({ example: '2026-10-01' }) @IsDateOnly() from!: string;
   @ApiProperty({ example: '2026-10-31', description: 'Exclusive' }) @IsDateOnly() to!: string;
   @ApiPropertyOptional({ nullable: true, description: 'null clears it' })

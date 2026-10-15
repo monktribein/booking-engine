@@ -12,7 +12,7 @@ What runs in production, how to see that it is healthy, what to alert on, and ho
 | `bullmq` | Redis (`REDIS_URL`), processed by BullMQ workers in the `worker` process (or the API when `WORKERS_ENABLED=true`) | production, and the real-Redis test run |
 | `inline` | in-process, same retry rules, no delay | unit/e2e tests and Redis-less local dev. **Production refuses it** (`validateEnv`). |
 
-Business code only sees `JobsProducer` / `JobHandler`. Jobs carry ids only; workers re-read MongoDB. Writes that must not be lost use a **transactional outbox**: the reservation/notification/sync row is committed in MongoDB first and handed to the queue afterwards, so a Redis outage never loses a booking's side effects.
+Business code only sees `JobsProducer` / `JobHandler`. Jobs carry ids only; workers re-read PostgreSQL. Writes that must not be lost use a **transactional outbox**: the reservation/notification/sync row is committed in PostgreSQL first and handed to the queue afterwards, so a Redis outage never loses a booking's side effects.
 
 Retry policy (`src/jobs/queues.ts`, exponential backoff, failed jobs kept 14 days, completed 24 h):
 
@@ -24,6 +24,7 @@ Retry policy (`src/jobs/queues.ts`, exponential backoff, failed jobs kept 14 day
 | reservation-sync | 8 | 30 s | 5 |
 | notification | 5 | 30 s | 10 |
 | payment | 6 | 20 s | 5 |
+| client-webhook (outbound customer webhooks) | 12 | 30 s (about 17 h in total) | 10 |
 
 Redis for BullMQ needs `maxmemory-policy noeviction` (set in `docker-compose.yml`, plus AOF) and should be **6.2 or newer**.
 
@@ -74,7 +75,7 @@ Not verified: the `docker-compose` `redis:7-alpine` service (Docker unavailable 
 
 | Endpoint | Meaning | Used by |
 | --- | --- | --- |
-| `GET /health` (API) | 200 only if MongoDB **and** the queue backend (Redis) answer within 2 s, else 503 with `details` | container HEALTHCHECK, load balancer |
+| `GET /health` (API) | 200 only if PostgreSQL **and** the queue backend (Redis) answer within 2 s, else 503 with `details` | container HEALTHCHECK, load balancer |
 | `GET /api/health` (web) | the Next.js server is up; never calls the API (a backend outage must not restart healthy web containers) | container HEALTHCHECK |
 | `GET /api/health?deep=1` (web) | also reports whether the API is reachable (503 if not) | monitoring |
 | `GET /admin/queues` (platform admin) | job counts per queue | dashboards |
@@ -93,11 +94,20 @@ No monitoring system is configured in this project. These are the rules to creat
 | Payment failures | `event=payment_failed` | > 10 per hour or 3x the weekly baseline | ticket |
 | Refund / webhook failures | `event=refund_failed OR event=payment_webhook_failed` with `final=true` | any | page |
 | Booking/payment 5xx | `http_request` with route `/public/reservations`, `/payments/verify`, `/payments/webhook` and status >= 500 | any | page |
-| Holds not expiring (scheduler dead) | MongoDB: `reservations.countDocuments({status:'PENDING', holdExpiresAt:{$lt: now-10min}}) > 0` | 10 min | page |
+| Holds not expiring (scheduler dead) | SQL: `select count(*) from reservations where status='PENDING' and hold_expires_at < now() - interval '10 minutes'` > 0 | 10 min | page |
 | Redis down | `/health` 503 with `queues: down` | 1 min | page |
+| Customer webhook gave up | `event=client_webhook_failed` (has `endpointId`, `eventType`, `error`; no guest data) | > 0 for the same endpoint repeatedly | ticket (tell the customer; they can redeliver from the dashboard) |
+| Public API abuse / outage | `http_request` on `/v1/*` with status 429 or >= 500; `RATE_LIMITED` spikes | > 5 % over 5 min | ticket |
 | Mail not configured | log line "E-mail delivery is NOT configured" at startup in production | any | ticket |
-| Notifications failing | MongoDB: `notifications.countDocuments({status:'FAILED', updatedAt > now-1h})` | > 5 | ticket |
+| Notifications failing | SQL: `select count(*) from notifications where status='FAILED' and created_at > now() - interval '1 hour'` | > 5 | ticket |
 | Web start refused | `event=invalid_configuration level=fatal` or container restart loop | any | page |
+
+### Public API operations
+* **Keys:** only hashes are stored. A leaked key is revoked from Settings → Developers (effective on the next request); the audit log records `api_key.create` / `api_key.revoke` (prefix only, never the secret).
+* **Rate limits** are per key and shared through Redis; like the other limiter they fail open if Redis is unreachable.
+* **Outbound webhooks** use the outbox: rows are committed with the booking and delivered by the worker (`client-webhook` queue). If the worker is down, deliveries wait and are not lost; the outbox relay also re-hands rows the queue lost. Retries keep the same event id/body; receivers deduplicate on `Tirvona-Event-Id`. `WEBHOOK_ALLOW_PRIVATE_TARGETS` must stay off in production (SSRF protection; the API refuses to start otherwise).
+* **Schema prerequisite:** run `npm run db:migrate` before each deploy (idempotent; the migration `0001` creates the unique `(endpoint_id, event_id)` constraint that makes event emission idempotent). See DATABASE.md §7.
+* **Contract drift:** CI runs `npm run openapi:check`; an intended contract change means `npm run openapi:export`, reviewing the diff of `docs/openapi-v1.json`, and following the compatibility rules in PUBLIC_API.md.
 
 ## 5. Notifications
 
@@ -107,26 +117,28 @@ Delivery semantics (**verified** against a local in-process SMTP server, so no r
 
 ## 6. Backups and recovery
 
-**Verified status: no backup was inspected or restored.** The repository's `.env` points at MongoDB Atlas (`mongodb+srv`) but its value is malformed (doubled `MONGODB_URI=` prefix, `<cluster>` placeholder), so the live database could not be reached and Atlas could not be examined. Do not assume backups exist until the checklist below is done.
+**Verified status: no backup of a real database was inspected or restored.** The database is hosted PostgreSQL on Supabase, which this work could not reach (no project or credentials were available to it), so Supabase's backups were not examined. Do not assume backups exist until the checklist below is done.
 
-What lives where: **MongoDB is the only source of truth** (reservations, payments, inventory, audit). Redis holds in-flight jobs only; they are rebuilt from outbox rows (`sync_jobs`, `notifications`, webhook events) so Redis may be lost without losing bookings. The Razorpay dashboard is an independent record of money movement.
+What lives where: **PostgreSQL is the only source of truth** (reservations, payments, inventory, audit). Redis holds in-flight jobs only; they are rebuilt from outbox rows (`sync_jobs`, `notifications`, `webhook_deliveries`, webhook events) so Redis may be lost without losing bookings. The Razorpay dashboard is an independent record of money movement.
 
 Recommended strategy (a policy to confirm, not something configured):
-* Atlas **Cloud Backup** with **continuous (point-in-time) backup** on a dedicated tier (shared/free tiers do not offer it), snapshot retention of roughly 7 daily / 4 weekly / 12 monthly, PITR window of at least 7 days. Backups in a second region if the business requires regional fault tolerance. Alert on a failed or missing snapshot.
-* Before any risky operation (schema/validator change, bulk edit, data fix), take an on-demand snapshot.
-* Quarterly restore drill into a **new, scratch** cluster. Restore into the live cluster in place only as a last resort.
+* Supabase **daily backups** are included on paid plans (retention depends on the plan). For payments data enable **Point-in-Time Recovery** (a paid add-on) so the recovery point can be seconds before an incident, not up to a day. Free projects have no downloadable backups: do not run production on one.
+* Supabase restores overwrite the project's database. Practise on a **scratch project** (restore a backup there, point a staging API at it), not on production.
+* Independently of Supabase, schedule a `pg_dump` (custom format) to storage you control, using the **direct** connection string, and keep several generations. A backup that only exists inside the vendor that hosts the database is one account problem away from being lost.
+* Before any risky operation (schema migration, bulk edit, data fix), take an on-demand backup.
+* Quarterly restore drill into a **new, scratch** project. Restore into the live project in place only as a last resort.
 
-**Restore drill (verified, isolated):** `npm run drill:restore` seeds a throw-away in-memory MongoDB (a paid booking included), writes a logical backup of all 27 collections (extended JSON), destroys the database, restores into a fresh one, and checks (all pass): per-collection count and content hash identical; indexes and validators re-created by `setup-db`; inventory counters consistent with reservations; `amountPaid`/`amountRefunded` equal the payments; uniqueness enforced again. This validates the data model's restorability and the procedure's shape. It does **not** validate Atlas snapshots, retention, or restore time.
+**Restore drill (verified, isolated):** `npm run drill:restore` seeds a throw-away local PostgreSQL 17 (a paid booking included), writes a logical backup of every table (31 tables, one JSON line per row), destroys the database, migrates a fresh one, restores into it, and checks (all pass): per-table row count and content hash identical; constraints and indexes come back from the migrations; inventory counters consistent with reservations; `amount_paid`/`amount_refunded` equal the payments; uniqueness enforced again. This validates the data model's restorability and the procedure's shape. It does **not** validate Supabase's backups, retention, PITR, or restore time, and it is not a replacement for `pg_dump`.
 
 ### Recovery checklist
 1. Declare the incident; stop writes if corruption is ongoing (scale API and worker to zero or set maintenance).
 2. Pick the recovery point (latest snapshot, or PITR timestamp just before the damage). Note the time.
-3. Restore into a **new** cluster. Never over the existing one. Do not delete anything yet.
-4. Run `db:setup` against it (indexes + validators). Run the invariant checks from `scripts/restore-drill.ts` against it (adapt the URI; read-only).
+3. Restore into a **new** Supabase project (or a scratch database). Never over the existing one. Do not delete anything yet.
+4. Run `npm run db:migrate` against it (a no-op if the backup is complete; it adds anything newer). Run the invariant checks from `scripts/restore-drill.ts` against it (adapt the connection; read-only).
 5. Reconcile what happened after the recovery point:
    * **Payments:** export Razorpay payments/refunds for the gap from the Razorpay dashboard/API. Any captured payment with no matching `payments` row needs a manual `payments/create`-style record or a refund; replay missed webhooks from the Razorpay dashboard (handlers are idempotent).
    * **Bookings:** guest-facing bookings made in the gap exist only as customer e-mails and Razorpay orders; contact those guests. OTA reservations: trigger a reservation pull for each connected channel (idempotent on `(source, externalReservationId)`).
    * **Inventory:** run the invariant check; if `sold` and live reservations disagree, rebuild counters from reservations before reopening sales.
-6. Point `MONGODB_URI` to the restored cluster, start the API and worker, watch `/health`, the alerts above, and `GET /admin/sync-errors`.
-7. Keep the damaged cluster read-only until the post-mortem is complete.
+6. Point `DATABASE_URL` to the restored database, start the API and worker, watch `/health`, the alerts above, and `GET /admin/sync-errors`.
+7. Keep the damaged database read-only until the post-mortem is complete.
 8. Record RPO (data lost) and RTO (time to recover) and update this document.

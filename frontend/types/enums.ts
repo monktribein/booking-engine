@@ -83,6 +83,7 @@ export enum InventoryBlockStatus {
 export enum ReservationSource {
   TIRVONA = 'TIRVONA',
   DIRECT = 'DIRECT',
+  API = 'API',
   AIRBNB = 'AIRBNB',
   BOOKING_COM = 'BOOKING_COM',
   AGODA = 'AGODA',

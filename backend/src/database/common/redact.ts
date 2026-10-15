@@ -45,7 +45,7 @@ export function redactSecrets<T>(value: T, depth = 0): T {
   if (typeof value === 'string') return scrubString(value) as unknown as T;
   if (Array.isArray(value)) return value.map((v) => redactSecrets(v, depth + 1)) as unknown as T;
   if (value instanceof Date || typeof value !== 'object') return value;
-  // Leave BSON types (ObjectId, Decimal128, ...) untouched.
+  // Leave Date, Buffer and other non-plain objects untouched.
   if ((value as { _bsontype?: string })._bsontype) return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {

@@ -11,7 +11,7 @@ import { UnauthorizedError } from '../../database/errors';
 import { UserDto } from '../users/dto/user.dto';
 import { UsersService } from '../users/users.service';
 import { AuthService, IssuedTokens } from './auth.service';
-import { AuthTokensDto, ForgotPasswordDto, LoginDto, RefreshDto, RegisterDto, ResetPasswordDto } from './dto/auth.dto';
+import { AuthTokensDto, ChangePasswordDto, ForgotPasswordDto, LoginDto, RefreshDto, RegisterDto, ResetPasswordDto } from './dto/auth.dto';
 
 const RT_COOKIE = 'tirvona_rt';
 // Strict per-IP budget on credential endpoints (brute force / credential stuffing).
@@ -92,6 +92,17 @@ export class AuthController {
   @ApiStandardErrors({ auth: false })
   async reset(@Body() dto: ResetPasswordDto, @ReqMeta() meta: RequestMeta) {
     await this.auth.resetPassword(dto, meta);
+    return { ok: true };
+  }
+
+  @authLimit()
+  @Post('change-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Change your own password. Needs the current password; ends every other login of this account' })
+  @ApiEnvelope(OkDto)
+  @ApiStandardErrors()
+  async changePassword(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Body() dto: ChangePasswordDto) {
+    await this.auth.changePassword(user, dto, meta);
     return { ok: true };
   }
 

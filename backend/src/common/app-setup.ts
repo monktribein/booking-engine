@@ -10,7 +10,6 @@ import { DomainValidationError } from '../database/errors';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './interceptors/response-envelope.interceptor';
 import { JsonLogger, requestLogger, useJsonLogs } from './json-logger';
-import { mongoSanitize } from './utils';
 
 function flatten(errors: ValidationError[], parent = ''): Record<string, string[]> {
   const out: Record<string, string[]> = {};
@@ -35,7 +34,7 @@ export function configureApp(app: NestExpressApplication): void {
   if (useJsonLogs() && process.env.LOG_REQUESTS !== 'false') app.use(requestLogger(new JsonLogger('tirvona-api')));
   app.use(cookieParser());
   // The app is created with bodyParser:false + rawBody:true, so parsers are registered here, in order,
-  // before mongoSanitize. Webhook signature checks read req.rawBody.
+  // before the validation pipe. Webhook signature checks read req.rawBody.
   app.useBodyParser('json', { limit: '1mb' });
   app.useBodyParser('urlencoded', { extended: false, limit: '100kb' });
   app.enableCors({
@@ -46,7 +45,6 @@ export function configureApp(app: NestExpressApplication): void {
     exposedHeaders: ['X-Request-Id'],
     maxAge: 600,
   });
-  app.use(mongoSanitize);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -60,18 +58,23 @@ export function configureApp(app: NestExpressApplication): void {
   app.enableShutdownHooks();
 
   if (config.get('swagger', { infer: true }).enabled) {
-    const doc = new DocumentBuilder()
-      .setTitle('Tirvona API')
-      .setDescription(
-        'PMS, booking engine and channel manager. Every response is wrapped as `{ success, data }` or `{ success: false, error: { code, message } }`. Money is in minor units (paise).',
-      )
-      .setVersion('1.0')
-      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
-      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'API key (tvk_...)' }, 'api-key')
-      .build();
-    const full = () => SwaggerModule.createDocument(app, doc);
-    SwaggerModule.setup('docs', app, full, { jsonDocumentUrl: 'docs/openapi.json' });
+    SwaggerModule.setup('docs', app, () => createApiDocuments(app).full, { jsonDocumentUrl: 'docs/openapi.json' });
     // The stable, versioned contract for external integrators: only /v1 (plus the public payment confirmation call).
-    SwaggerModule.setup('docs/v1', app, () => buildPublicApiDocument(full()), { jsonDocumentUrl: 'docs/v1/openapi.json' });
+    SwaggerModule.setup('docs/v1', app, () => createApiDocuments(app).v1, { jsonDocumentUrl: 'docs/v1/openapi.json' });
   }
+}
+
+/** The complete API document and the public /v1 contract derived from it (also used by `npm run openapi:export`). */
+export function createApiDocuments(app: NestExpressApplication) {
+  const config = new DocumentBuilder()
+    .setTitle('Tirvona API')
+    .setDescription(
+      'PMS, booking engine and channel manager. Every response is wrapped as `{ success, data }` or `{ success: false, error: { code, message } }`. Money is in minor units (paise).',
+    )
+    .setVersion('1.0')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'API key (tvk_...)' }, 'api-key')
+    .build();
+  const full = SwaggerModule.createDocument(app, config);
+  return { full, v1: buildPublicApiDocument(full) };
 }

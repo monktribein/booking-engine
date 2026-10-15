@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
+import { sql } from 'kysely';
 import { NotificationStatus, RefundStatus, SyncJobStatus, WebhookDeliveryStatus, WebhookEventStatus } from '../database/enums';
-import { Models, getModels } from '../database/models';
+import { Db, InjectDb } from '../database/kysely';
 import { JobsProducer } from './jobs.producer';
 import { QUEUES, QueueName, queueForSyncType } from './queues';
 
@@ -10,29 +9,27 @@ const BATCH = 200;
 /** Rows handed to the queue but still unprocessed after this long are handed over again. */
 const STALE_MS = 5 * 60_000;
 
+type OutboxTable = 'syncJobs' | 'notifications' | 'refunds' | 'webhookEvents' | 'webhookDeliveries';
+
 /**
  * Transactional outbox → queue.
  *
- * Business transactions only write rows (sync_jobs, notifications, refunds,
- * webhook_events). After commit, services call flush(), and a timer calls
- * relay(). Both claim rows with a conditional `enqueuedAt` update and add a
- * queue job. A crash between commit and enqueue therefore delays work but
- * never loses it. Double delivery is harmless: every worker leases its row
+ * Business transactions only write rows (sync_jobs, notifications, refunds, webhook_events, webhook_deliveries). After
+ * commit, services call flush(), and a timer calls relay(). Both claim rows with a conditional `enqueued_at` update
+ * (FOR UPDATE SKIP LOCKED, so parallel dispatchers never take the same row) and add a queue job. A crash between commit
+ * and enqueue therefore delays work but never loses it. Double delivery is harmless: every worker leases its row
  * (claimById / status checks) before acting.
  */
 @Injectable()
 export class OutboxDispatcher {
   private readonly logger = new Logger(OutboxDispatcher.name);
-  private readonly m: Models;
   private running: Promise<void> | null = null;
   private again = false;
 
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly producer: JobsProducer,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   /** Fire-and-forget after a commit. Concurrent calls coalesce into one extra pass. */
   flush(): Promise<void> {
@@ -64,112 +61,89 @@ export class OutboxDispatcher {
     await this.dispatchClientWebhooks(includeStale);
   }
 
-  private staleFilter(includeStale: boolean) {
-    return includeStale ? { $or: [{ enqueuedAt: null }, { enqueuedAt: { $lt: new Date(Date.now() - STALE_MS) } }] } : { enqueuedAt: null };
+  /**
+   * Claims one due row: stamps `enqueued_at = now()` on the oldest row matching `due` that is unclaimed (or, in a relay
+   * pass, claimed long ago). Returns its id and the stamp, or null when nothing is due.
+   */
+  private async claimOne(table: OutboxTable, due: ReturnType<typeof sql>, orderBy: string, includeStale: boolean): Promise<{ id: string; stamp: number; channel?: string; type?: string } | null> {
+    const staleCut = new Date(Date.now() - STALE_MS);
+    const unclaimed = includeStale ? sql`(enqueued_at is null or enqueued_at < ${staleCut})` : sql`enqueued_at is null`;
+    const rows = await sql<{ id: string; enqueuedAt: Date; channel?: string; type?: string }>`
+      update ${sql.table(toSnake(table))} set enqueued_at = now()
+      where id = (select id from ${sql.table(toSnake(table))} where ${due} and ${unclaimed} order by ${sql.ref(orderBy)} limit 1 for update skip locked)
+      returning id, enqueued_at${table === 'syncJobs' ? sql`, type, channel` : sql``}${table === 'webhookEvents' ? sql`, channel` : sql``}`.execute(this.db);
+    const row = rows.rows[0];
+    return row ? { id: row.id, stamp: new Date(row.enqueuedAt).getTime(), channel: row.channel, type: row.type } : null;
   }
 
-  /** Claim one row at a time, so parallel dispatchers never both hand over the same row in one pass. */
-  private async claimLoop<T extends { _id: Types.ObjectId }>(
-    claim: () => Promise<(T & { enqueuedAt: Date | null }) | null>,
-    send: (row: T, stamp: number) => Promise<void>,
-    unclaim: (id: Types.ObjectId) => Promise<unknown>,
-  ): Promise<void> {
+  private async unclaim(table: OutboxTable, id: string) {
+    await sql`update ${sql.table(toSnake(table))} set enqueued_at = null where id = ${id}::uuid`.execute(this.db);
+  }
+
+  private async claimLoop(table: OutboxTable, due: ReturnType<typeof sql>, orderBy: string, includeStale: boolean, send: (row: { id: string; stamp: number; channel?: string; type?: string }) => Promise<void>) {
     for (let i = 0; i < BATCH; i++) {
-      const row = await claim();
+      const row = await this.claimOne(table, due, orderBy, includeStale);
       if (!row) return;
       try {
-        // The job id includes the claim time, so a re-dispatch of a lost job is not swallowed by
-        // BullMQ's dedup, while a single dispatch is never duplicated.
-        await send(row, row.enqueuedAt?.getTime() ?? Date.now());
+        // The job id includes the claim time, so a re-dispatch of a lost job is not swallowed by BullMQ's dedup, while a
+        // single dispatch is never duplicated.
+        await send(row);
       } catch (err) {
-        await unclaim(row._id);
+        await this.unclaim(table, row.id);
         throw err;
       }
     }
   }
 
-  private async dispatchSyncJobs(includeStale: boolean) {
-    await this.claimLoop(
-      () =>
-        this.m.SyncJob.findOneAndUpdate(
-          { status: { $in: [SyncJobStatus.PENDING, SyncJobStatus.RETRYING] }, scheduledAt: { $lte: new Date() }, ...this.staleFilter(includeStale) },
-          { $set: { enqueuedAt: new Date() } },
-          { sort: { scheduledAt: 1 }, new: true },
-        ).lean(),
-      async (job, stamp) => {
-        const queue = queueForSyncType(job.type);
-        const id = String(job._id);
+  private dispatchSyncJobs(includeStale: boolean) {
+    return this.claimLoop(
+      'syncJobs',
+      sql`status in (${sql.join([SyncJobStatus.PENDING, SyncJobStatus.RETRYING])}) and scheduled_at <= now()`,
+      'scheduled_at',
+      includeStale,
+      async (job) => {
+        const queue = queueForSyncType(job.type as never);
         if (queue === QUEUES.RESERVATION_SYNC) {
-          await this.producer.enqueue(queue, 'sync', { kind: 'SYNC_JOB', syncJobId: id }, { jobId: `sync-${id}-${stamp}` });
+          await this.producer.enqueue(queue, 'sync', { kind: 'SYNC_JOB', syncJobId: job.id }, { jobId: `sync-${job.id}-${job.stamp}` });
         } else {
-          await this.producer.enqueue(queue as 'inventory-sync', 'sync', { syncJobId: id }, { jobId: `sync-${id}-${stamp}` });
+          await this.producer.enqueue(queue as 'inventory-sync', 'sync', { syncJobId: job.id }, { jobId: `sync-${job.id}-${job.stamp}` });
         }
       },
-      (id) => this.m.SyncJob.updateOne({ _id: id }, { $set: { enqueuedAt: null } }),
     );
   }
 
-  private async dispatchNotifications(includeStale: boolean) {
-    await this.claimLoop(
-      () =>
-        this.m.Notification.findOneAndUpdate(
-          { status: NotificationStatus.QUEUED, ...this.staleFilter(includeStale) },
-          { $set: { enqueuedAt: new Date() } },
-          { sort: { createdAt: 1 }, new: true },
-        ).lean(),
-      (n, stamp) => this.producer.enqueue(QUEUES.NOTIFICATION, 'send', { notificationId: String(n._id) }, { jobId: `ntf-${n._id}-${stamp}` }),
-      (id) => this.m.Notification.updateOne({ _id: id }, { $set: { enqueuedAt: null } }),
+  private dispatchNotifications(includeStale: boolean) {
+    return this.claimLoop('notifications', sql`status = ${NotificationStatus.QUEUED}`, 'created_at', includeStale, (n) =>
+      this.producer.enqueue(QUEUES.NOTIFICATION, 'send', { notificationId: n.id }, { jobId: `ntf-${n.id}-${n.stamp}` }),
     );
   }
 
-  private async dispatchRefunds(includeStale: boolean) {
-    await this.claimLoop(
-      () =>
-        this.m.Refund.findOneAndUpdate(
-          { status: RefundStatus.PENDING, ...this.staleFilter(includeStale) },
-          { $set: { enqueuedAt: new Date() } },
-          { sort: { createdAt: 1 }, new: true },
-        ).lean(),
-      (r, stamp) => this.producer.enqueue(QUEUES.PAYMENT, 'refund', { kind: 'REFUND', refundId: String(r._id) }, { jobId: `refund-${r._id}-${stamp}` }),
-      (id) => this.m.Refund.updateOne({ _id: id }, { $set: { enqueuedAt: null } }),
+  private dispatchRefunds(includeStale: boolean) {
+    return this.claimLoop('refunds', sql`status = ${RefundStatus.PENDING}`, 'created_at', includeStale, (r) =>
+      this.producer.enqueue(QUEUES.PAYMENT, 'refund', { kind: 'REFUND', refundId: r.id }, { jobId: `refund-${r.id}-${r.stamp}` }),
     );
+  }
+
+  private dispatchWebhooks(includeStale: boolean) {
+    return this.claimLoop('webhookEvents', sql`status = ${WebhookEventStatus.RECEIVED}`, 'created_at', includeStale, (ev) => this.enqueueWebhook(ev.id, ev.channel as string, ev.stamp));
   }
 
   /** Outbound customer webhooks (api events). */
-  private async dispatchClientWebhooks(includeStale: boolean) {
-    await this.claimLoop(
-      () =>
-        this.m.WebhookDelivery.findOneAndUpdate(
-          { status: { $in: [WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.RETRYING] }, ...this.staleFilter(includeStale) },
-          { $set: { enqueuedAt: new Date() } },
-          { sort: { createdAt: 1 }, new: true },
-        ).lean(),
-      (d, stamp) => this.producer.enqueue(QUEUES.CLIENT_WEBHOOK, 'deliver', { deliveryId: String(d._id) }, { jobId: `cwh-${d._id}-${stamp}` }),
-      (id) => this.m.WebhookDelivery.updateOne({ _id: id }, { $set: { enqueuedAt: null } }),
-    );
-  }
-
-  private async dispatchWebhooks(includeStale: boolean) {
-    await this.claimLoop(
-      () =>
-        this.m.WebhookEvent.findOneAndUpdate(
-          { status: WebhookEventStatus.RECEIVED, ...this.staleFilter(includeStale) },
-          { $set: { enqueuedAt: new Date() } },
-          { sort: { createdAt: 1 }, new: true },
-        ).lean(),
-      (ev, stamp) => this.enqueueWebhook(ev._id, ev.channel, stamp),
-      (id) => this.m.WebhookEvent.updateOne({ _id: id }, { $set: { enqueuedAt: null } }),
+  private dispatchClientWebhooks(includeStale: boolean) {
+    return this.claimLoop('webhookDeliveries', sql`status in (${sql.join([WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.RETRYING])})`, 'created_at', includeStale, (dl) =>
+      this.producer.enqueue(QUEUES.CLIENT_WEBHOOK, 'deliver', { deliveryId: dl.id }, { jobId: `cwh-${dl.id}-${dl.stamp}` }),
     );
   }
 
   /** Payment-provider events go to the payment queue; OTA events to webhook-processing. */
-  async enqueueWebhook(eventId: Types.ObjectId, source: string, stamp = Date.now()): Promise<void> {
-    const id = String(eventId);
+  async enqueueWebhook(eventId: string, source: string, stamp = Date.now()): Promise<void> {
     const queue: QueueName = source === 'RAZORPAY' ? QUEUES.PAYMENT : QUEUES.WEBHOOK;
     if (queue === QUEUES.PAYMENT) {
-      await this.producer.enqueue(QUEUES.PAYMENT, 'webhook', { kind: 'WEBHOOK', webhookEventId: id }, { jobId: `wh-${id}-${stamp}` });
+      await this.producer.enqueue(QUEUES.PAYMENT, 'webhook', { kind: 'WEBHOOK', webhookEventId: eventId }, { jobId: `wh-${eventId}-${stamp}` });
     } else {
-      await this.producer.enqueue(QUEUES.WEBHOOK, 'process', { webhookEventId: id }, { jobId: `wh-${id}-${stamp}` });
+      await this.producer.enqueue(QUEUES.WEBHOOK, 'process', { webhookEventId: eventId }, { jobId: `wh-${eventId}-${stamp}` });
     }
   }
 }
+
+const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);

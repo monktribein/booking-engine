@@ -4,6 +4,7 @@ import { bearer, createPropertyWithRooms, day, inventoryFor, registerOwner, Prop
 import { checkoutSignature, mockRazorpay } from './utils/razorpay-mock';
 import { createTestApp, TestApp } from './utils/test-app';
 import { verifySignature } from '../src/modules/public-api/webhook-signature';
+import { d } from '../src/database/sql';
 
 /** A local webhook receiver that records every request and answers with a scripted status. */
 async function startReceiver() {
@@ -80,7 +81,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
       expect(created.key).toMatch(/^tvk_[a-z0-9]{8}_[A-Za-z0-9_-]{43}$/);
       expect(created.keyPrefix).toBe(created.key.slice(0, 13));
 
-      const stored = await t.conn.db!.collection('api_keys').findOne({ prefix: created.key.slice(4, 12) });
+      const stored = await t.db.selectFrom('apiKeys').selectAll().where('prefix', '=', created.key.slice(4, 12)).executeTakeFirst();
       expect(JSON.stringify(stored)).not.toContain(created.key); // not even a substring of the secret part
       expect(JSON.stringify(stored)).not.toContain(created.key.slice(13));
       expect(stored!.keyHash).toMatch(/^[a-f0-9]{64}$/);
@@ -138,7 +139,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
       expect(after.body.error.code).toBe('API_KEY_REVOKED');
 
       const e = await createKey(owner, { name: 'Expiring', scopes: ['properties:read'], expiresAt: new Date(Date.now() + 60_000).toISOString() });
-      await t.conn.db!.collection('api_keys').updateOne({ prefix: e.key.slice(4, 12) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+      await t.db.updateTable('apiKeys').set({ expiresAt: new Date(Date.now() - 1000) }).where('prefix', '=', e.key.slice(4, 12)).execute();
       const expired = await t.http().get('/v1/properties').set(auth(e.key));
       expect(expired.body.error.code).toBe('API_KEY_EXPIRED');
     });
@@ -241,7 +242,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
       const bodies = results.filter((r) => [200, 201].includes(r.status));
       expect(bodies.length).toBeGreaterThanOrEqual(1);
       expect(new Set(bodies.map((r) => r.body.data.reservation.reservationCode)).size).toBe(1);
-      expect(await t.conn.db!.collection('reservations').countDocuments({ checkIn: new Date(`${day(40)}T00:00:00Z`), source: 'API' })).toBe(1);
+      expect(Number((await t.db.selectFrom('reservations').select((eb) => eb.fn.countAll<string>().as('n')).where('checkIn', '=', d(day(40))).where('source', '=', 'API').executeTakeFirstOrThrow()).n)).toBe(1);
       expect(await sold(owner, a, day(40), day(42))).toEqual([1, 1]);
     });
 
@@ -253,12 +254,12 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
     });
 
     it('retrieves, lists with filters and paginates', async () => {
-      const code = (await book(a, day(60), day(61)).expect(201)).body.data.reservation.reservationCode as string;
+      const code = (await book(a, day(55), day(56)).expect(201)).body.data.reservation.reservationCode as string;
       const got = (await t.http().get(`/v1/reservations/${code.toLowerCase()}`).set(auth()).expect(200)).body.data;
       expect(got).toMatchObject({ reservationCode: code, guest: { email: 'guest@example.com' } });
       expect((await t.http().get('/v1/reservations/TRV-NOPE0000').set(auth())).status).toBe(404);
 
-      const page = (await t.http().get('/v1/reservations').query({ propertySlug: a.slug, status: 'PENDING', checkInFrom: day(60), checkInTo: day(60) }).set(auth()).expect(200)).body.data;
+      const page = (await t.http().get('/v1/reservations').query({ propertySlug: a.slug, status: 'PENDING', checkInFrom: day(55), checkInTo: day(55) }).set(auth()).expect(200)).body.data;
       expect(page.items.map((r: { reservationCode: string }) => r.reservationCode)).toEqual([code]);
       const two = (await t.http().get('/v1/reservations').query({ limit: 2 }).set(auth()).expect(200)).body.data;
       expect(two.items).toHaveLength(2);
@@ -267,20 +268,20 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
     });
 
     it('cancels once, releases the rooms, and is safe to repeat', async () => {
-      const made = (await book(a, day(70), day(72)).expect(201)).body.data;
+      const made = (await book(a, day(45), day(47)).expect(201)).body.data;
       await pay(made.payment.orderId, 'pay_V1CANCEL001');
       expect((await t.http().get(`/v1/reservations/${made.reservation.reservationCode}`).set(auth()).expect(200)).body.data).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID' });
-      expect(await sold(owner, a, day(70), day(72))).toEqual([1, 1]);
+      expect(await sold(owner, a, day(45), day(47))).toEqual([1, 1]);
 
       const cancelled = (await t.http().post(`/v1/reservations/${made.reservation.reservationCode}/cancel`).set(auth()).send({ reason: 'Guest changed plans' }).expect(200)).body.data;
       expect(cancelled.reservation.status).toBe('CANCELLED');
       expect(cancelled.alreadyCancelled).toBe(false);
       expect(Array.isArray(cancelled.refunds)).toBe(true);
-      expect(await sold(owner, a, day(70), day(72))).toEqual([0, 0]);
+      expect(await sold(owner, a, day(45), day(47))).toEqual([0, 0]);
 
       const repeat = (await t.http().post(`/v1/reservations/${made.reservation.reservationCode}/cancel`).set(auth()).send({}).expect(200)).body.data;
       expect(repeat.alreadyCancelled).toBe(true);
-      expect(await sold(owner, a, day(70), day(72))).toEqual([0, 0]);
+      expect(await sold(owner, a, day(45), day(47))).toEqual([0, 0]);
     });
   });
 
@@ -305,7 +306,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
       expect(endpoint.secret).toMatch(/^whsec_/);
       const list = (await t.http().get('/webhook-endpoints').set(bearer(owner.token)).expect(200)).body.data;
       expect(JSON.stringify(list)).not.toContain('whsec_');
-      const stored = await t.conn.db!.collection('webhook_endpoints').findOne({ _id: new (await import('mongoose')).Types.ObjectId(endpoint._id) });
+      const stored = await t.db.selectFrom('webhookEndpoints').selectAll().where('id', '=', endpoint._id).executeTakeFirst();
       expect(stored!.secretEncrypted).toMatch(/^v1:/);
       expect(JSON.stringify(stored)).not.toContain(endpoint.secret);
     });
@@ -332,7 +333,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
     });
 
     it('a booking journey emits created → payment.succeeded → confirmed, each exactly once despite duplicate payment callbacks', async () => {
-      const made = (await book(a, day(80), day(82)).expect(201)).body.data;
+      const made = (await book(a, day(48), day(50)).expect(201)).body.data;
       // the browser callback is hit three times in parallel
       await Promise.all([1, 2, 3].map(() => pay(made.payment.orderId, 'pay_WH00000001')));
       await t.drain();
@@ -350,7 +351,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
     });
 
     it('a cancellation emits reservation.cancelled', async () => {
-      const made = (await book(a, day(84), day(85)).expect(201)).body.data;
+      const made = (await book(a, day(51), day(52)).expect(201)).body.data;
       await t.drain();
       rx.reset();
       await t.http().post(`/v1/reservations/${made.reservation.reservationCode}/cancel`).set(auth()).send({}).expect(200);
@@ -359,7 +360,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
     });
 
     it('a failed payment emits payment.failed', async () => {
-      const made = (await book(a, day(86), day(87)).expect(201)).body.data;
+      const made = (await book(a, day(53), day(54)).expect(201)).body.data;
       await t.drain();
       rx.reset();
       const svc = t.app.get((await import('../src/modules/payments/payments.service')).PaymentsService);
@@ -412,8 +413,8 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
 
     it('event type and property filters decide who receives what', async () => {
       const only = (await post('/webhook-endpoints', { url: rx.url, events: ['reservation.cancelled'], propertyIds: [a2.propertyId] }).expect(201)).body.data;
-      const mkA2 = (await book(a2, day(90), day(91), 'idem-filter-a2-0001').expect(201)).body.data.reservation.reservationCode;
-      const mkA = (await book(a, day(90), day(91), 'idem-filter-a-00001').expect(201)).body.data.reservation.reservationCode;
+      const mkA2 = (await book(a2, day(57), day(58), 'idem-filter-a2-0001').expect(201)).body.data.reservation.reservationCode;
+      const mkA = (await book(a, day(57), day(58), 'idem-filter-a-00001').expect(201)).body.data.reservation.reservationCode;
       await t.drain();
       expect((await deliveries(only._id)).length).toBe(0); // created events are not subscribed
       await t.http().post(`/v1/reservations/${mkA}/cancel`).set(auth()).send({}).expect(200);
@@ -428,7 +429,7 @@ describe('Public API v1: keys, tenant isolation, idempotency, signed webhooks', 
       const otherRx = await startReceiver();
       try {
         await post('/webhook-endpoints', { url: otherRx.url, events: ['*'] }, other).expect(201);
-        await book(a, day(92), day(93), 'idem-disabled-0001').expect(201);
+        await book(a, day(36), day(37), 'idem-disabled-0001').expect(201);
         await t.drain();
         expect(rx.received).toHaveLength(0);
         expect(otherRx.received).toHaveLength(0);

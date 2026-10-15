@@ -1,9 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Connection, Types } from 'mongoose';
-import { ChannelCode } from '../../database/enums';
 import { UnauthorizedError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
 import { NormalizedReservationEvent, WebhookService } from '../../database/services/webhook.service';
 import { JobContext, JobHandler, JobHandlerRegistry, isFinalAttempt, isRetryable, nonRetryable } from '../../jobs/job-handler';
 import { JobsProducer } from '../../jobs/jobs.producer';
@@ -55,10 +52,10 @@ export class WebhooksService {
     // Stored first (forensics), rejected second.
     if (!signatureValid) throw new UnauthorizedError('Webhook signature verification failed', 'INVALID_SIGNATURE');
     if (!duplicate && parsed) {
-      await this.store.markEnqueued(event._id);
-      await this.outbox.enqueueWebhook(event._id, adapter.channel, event.enqueuedAt?.getTime() ?? Date.now());
+      await this.store.markEnqueued(event.id);
+      await this.outbox.enqueueWebhook(event.id, adapter.channel, event.enqueuedAt?.getTime() ?? Date.now());
     }
-    return { received: true, duplicate, eventId: String(event._id) };
+    return { received: true, duplicate, eventId: event.id };
   }
 }
 
@@ -72,25 +69,21 @@ export class WebhooksService {
 export class WebhookJobHandler implements JobHandler<'webhook-processing'>, OnModuleInit {
   readonly queue = QUEUES.WEBHOOK;
   private readonly logger = new Logger('WebhookWorker');
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly registry: JobHandlerRegistry,
     private readonly adapters: ChannelAdapterRegistry,
     private readonly store: WebhookService,
     private readonly producer: JobsProducer,
     private readonly outbox: OutboxDispatcher,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   onModuleInit() {
     this.registry.register(this);
   }
 
   async handle(ctx: JobContext<'webhook-processing'>) {
-    const id = new Types.ObjectId(ctx.data.webhookEventId);
+    const id = ctx.data.webhookEventId;
     const event = await this.store.claimById(id);
     if (!event) return { status: 'SKIPPED_ALREADY_HANDLED' };
     try {
@@ -106,7 +99,7 @@ export class WebhookJobHandler implements JobHandler<'webhook-processing'>, OnMo
         await this.producer.enqueue(
           QUEUES.RESERVATION_SYNC,
           'acknowledge',
-          { kind: 'ACKNOWLEDGE', propertyId: String(outcome.propertyId), channel: event.channel, externalReservationId: reservation.externalReservationId },
+          { kind: 'ACKNOWLEDGE', propertyId: outcome.propertyId, channel: event.channel, externalReservationId: reservation.externalReservationId },
           { jobId: `ack-${event.channel}-${reservation.externalReservationId}-${outcome.action}`.replace(/[^A-Za-z0-9_-]/g, '_') },
         );
       }
@@ -122,9 +115,13 @@ export class WebhookJobHandler implements JobHandler<'webhook-processing'>, OnMo
   }
 
   /** For admin retry of a FAILED event: back to RECEIVED and re-enqueued with a fresh job id. */
-  async retry(eventId: Types.ObjectId): Promise<void> {
-    await this.m.WebhookEvent.updateOne({ _id: eventId }, { $set: { status: 'RECEIVED', attempts: 0, lockedUntil: null, enqueuedAt: new Date() } });
-    const ev = await this.m.WebhookEvent.findById(eventId, { channel: 1 }).lean();
-    if (ev) await this.outbox.enqueueWebhook(eventId, ev.channel as ChannelCode);
+  async retry(eventId: string): Promise<void> {
+    const ev = await this.db
+      .updateTable('webhookEvents')
+      .set({ status: 'RECEIVED', attempts: 0, lockedUntil: null, enqueuedAt: new Date() })
+      .where('id', '=', eventId)
+      .returning('channel')
+      .executeTakeFirst();
+    if (ev) await this.outbox.enqueueWebhook(eventId, ev.channel);
   }
 }

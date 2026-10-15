@@ -1,5 +1,5 @@
-import type { MongoMemoryReplSet } from 'mongodb-memory-server';
+import type { EphemeralPg } from '../scripts/embedded-pg';
 
 export default async function globalTeardown(): Promise<void> {
-  await (globalThis as unknown as { __MONGO_RS__?: MongoMemoryReplSet }).__MONGO_RS__?.stop();
+  await (globalThis as unknown as { __PG__?: EphemeralPg }).__PG__?.stop();
 }

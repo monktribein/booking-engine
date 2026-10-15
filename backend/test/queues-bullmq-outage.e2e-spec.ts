@@ -90,15 +90,15 @@ const redisBin = process.env.TEST_REDIS_BIN;
 
     const started = Date.now();
     const res = await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(5), day(6)));
-    expect(res.status).toBe(201); // the booking is committed in MongoDB; the queue is not on the request path
+    expect(res.status).toBe(201); // the booking is committed in PostgreSQL; the queue is not on the request path
     expect(Date.now() - started).toBeLessThan(5_000);
-    const pending = await t.conn.db!.collection('notifications').countDocuments({ status: 'QUEUED' });
+    const pending = Number((await t.db.selectFrom('notifications').select((eb) => eb.fn.countAll<string>().as('n')).where('status', '=', 'QUEUED').executeTakeFirstOrThrow()).n);
     expect(pending).toBeGreaterThan(0); // waiting in the outbox, not lost
 
     await startRedis();
     await t.drain();
-    expect(await t.conn.db!.collection('notifications').countDocuments({ status: 'QUEUED' })).toBe(0);
-    expect(await t.conn.db!.collection('notifications').countDocuments({ status: 'SENT' })).toBeGreaterThan(0);
+    expect(Number((await t.db.selectFrom('notifications').select((eb) => eb.fn.countAll<string>().as('n')).where('status', '=', 'QUEUED').executeTakeFirstOrThrow()).n)).toBe(0);
+    expect(Number((await t.db.selectFrom('notifications').select((eb) => eb.fn.countAll<string>().as('n')).where('status', '=', 'SENT').executeTakeFirstOrThrow()).n)).toBeGreaterThan(0);
     expect((await t.http().get('/health')).status).toBe(200);
   });
 });

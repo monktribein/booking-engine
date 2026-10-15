@@ -1,13 +1,12 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { InjectConnection } from '@nestjs/mongoose';
 import type { Request } from 'express';
-import { Connection, Types } from 'mongoose';
 import { UserStatus } from '../../database/enums';
 import { UnauthorizedError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
 import type { AuthUser } from '../auth/auth-user';
+import { isUuid } from '../utils';
 import { IS_PUBLIC_KEY } from '../decorators';
 
 export interface AccessTokenClaims {
@@ -25,15 +24,11 @@ export interface AccessTokenClaims {
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  private readonly m: Models;
-
   constructor(
     private readonly reflector: Reflector,
     private readonly jwt: JwtService,
-    @InjectConnection() connection: Connection,
-  ) {
-    this.m = getModels(connection);
-  }
+    @InjectDb() private readonly db: Db,
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [ctx.getHandler(), ctx.getClass()]);
@@ -50,22 +45,22 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedError('Invalid or expired access token', 'TOKEN_INVALID');
     }
-    if (!Types.ObjectId.isValid(claims.sid) || !Types.ObjectId.isValid(claims.sub)) {
+    if (!isUuid(claims.sid) || !isUuid(claims.sub)) {
       throw new UnauthorizedError('Invalid access token', 'TOKEN_INVALID');
     }
 
     const [session, user] = await Promise.all([
-      this.m.AuthSession.findOne({ _id: claims.sid, userId: claims.sub, revokedAt: null, expiresAt: { $gt: new Date() } }, { _id: 1 }).lean(),
-      this.m.User.findById(claims.sub, { organizationId: 1, role: 1, status: 1, email: 1, name: 1 }).lean(),
+      this.db.selectFrom('authSessions').select('id').where('id', '=', claims.sid).where('userId', '=', claims.sub).where('revokedAt', 'is', null).where('expiresAt', '>', new Date()).executeTakeFirst(),
+      this.db.selectFrom('users').select(['id', 'organizationId', 'role', 'status', 'email', 'name']).where('id', '=', claims.sub).executeTakeFirst(),
     ]);
     if (!session) throw new UnauthorizedError('Session has ended', 'SESSION_REVOKED');
     if (!user || user.status !== UserStatus.ACTIVE) throw new UnauthorizedError('Account is not active', 'ACCOUNT_INACTIVE');
 
     req.user = {
-      userId: user._id,
+      userId: user.id,
       organizationId: user.organizationId,
-      role: user.role, // read fresh from the DB, so demotions apply at once
-      sessionId: session._id,
+      role: user.role as AuthUser['role'], // read fresh from the DB, so demotions apply at once
+      sessionId: session.id,
       email: user.email,
       name: user.name,
     };

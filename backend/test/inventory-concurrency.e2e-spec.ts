@@ -1,5 +1,6 @@
 import { bearer, createPropertyWithRooms, day, inventoryFor, registerOwner, reservationBody, PropertySetup, Session } from './utils/fixtures';
 import { createTestApp, TestApp } from './utils/test-app';
+import { sql } from 'kysely';
 
 /**
  * THE critical guarantee: with one room left, simultaneous bookings produce
@@ -61,11 +62,12 @@ describe('Double-booking prevention (inventory concurrency)', () => {
     expect(days.map((d) => d.available)).toEqual([1, 0, 1]); // nights 20 and 22 untouched
   });
 
-  it('the database itself refuses available < 0 (server-side validator)', async () => {
-    const coll = t.conn.db!.collection('inventory');
-    const row = await coll.findOne({ available: 0 });
-    await expect(coll.updateOne({ _id: row!._id }, { $inc: { available: -1, sold: 1 } })).rejects.toMatchObject({ code: 121 });
-    const negatives = await coll.countDocuments({ available: { $lt: 0 } });
+  it('the database itself refuses available < 0 (CHECK constraint)', async () => {
+    const row = await t.db.selectFrom('inventory').select('id').where('available', '=', 0).executeTakeFirst();
+    await expect(
+      t.db.updateTable('inventory').set({ available: sql<number>`available - 1`, sold: sql<number>`sold + 1` }).where('id', '=', row!.id).execute(),
+    ).rejects.toMatchObject({ code: '23514' });
+    const negatives = Number((await t.db.selectFrom('inventory').select((eb) => eb.fn.countAll<string>().as('n')).where('available', '<', 0).executeTakeFirstOrThrow()).n);
     expect(negatives).toBe(0);
   });
 });

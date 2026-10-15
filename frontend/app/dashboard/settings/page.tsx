@@ -12,7 +12,9 @@ import { EmptyState, NoPropertyState, QueryState } from '@/components/ui/query-s
 import { apiClient } from '@/lib/api/client';
 import { propertiesApi } from '@/lib/api/properties';
 import { errorMessage } from '@/lib/utils/errors';
-import { Building2, Users, Trash2 } from 'lucide-react';
+import { Building2, Users, Trash2, KeyRound } from 'lucide-react';
+import { useAuth } from '@/lib/auth/auth-context';
+import { DeveloperSection } from '@/components/settings/developer-section';
 import type { Property } from '@/types';
 
 interface Staff {
@@ -29,7 +31,10 @@ export default function SettingsPage() {
   const { activeProperty, error: propertyError, reloadProperties, isLoading: propertyLoading } = useProperty();
   const propertyId = activeProperty?._id;
   const queryClient = useQueryClient();
-  const [section, setSection] = useState<'property' | 'users'>('property');
+  const { user } = useAuth();
+  // API keys and webhooks are organization-wide credentials: only owners manage them (the API enforces this too).
+  const isOwner = user?.role === 'PROPERTY_OWNER';
+  const [section, setSection] = useState<'property' | 'users' | 'developers'>('property');
   const [notice, setNotice] = useState<{ kind: 'success' | 'danger'; text: string } | null>(null);
 
   // Staff
@@ -69,7 +74,7 @@ export default function SettingsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-1 space-y-1" role="tablist" aria-label="Settings sections">
-          {([['property', 'Property Details', Building2], ['users', 'Users & Staff', Users]] as const).map(([id, label, Icon]) => (
+          {([['property', 'Property Details', Building2], ['users', 'Users & Staff', Users], ...(isOwner ? [['developers', 'Developers', KeyRound] as const] : [])] as const).map(([id, label, Icon]) => (
             <button
               key={id}
               role="tab"
@@ -87,6 +92,8 @@ export default function SettingsPage() {
           {section === 'property' && activeProperty && (
             <PropertyDetailsForm key={`${activeProperty._id}:${activeProperty.updatedAt}`} property={activeProperty} onSaved={async () => { setNotice({ kind: 'success', text: 'Property settings saved.' }); await reloadProperties(); }} onError={(text) => setNotice({ kind: 'danger', text })} />
           )}
+
+          {section === 'developers' && isOwner && <DeveloperSection />}
 
           {section === 'users' && (
             <>

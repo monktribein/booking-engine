@@ -5,13 +5,12 @@ import { Type } from 'class-transformer';
 import { IsEmail, IsIn, IsInt, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import type { Request } from 'express';
 import { randomBytes } from 'node:crypto';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import { Public } from '../../common/decorators';
 import { IsDateOnly } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { eachNight, toDateOnly } from '../../database/common/dates';
 import { DomainError } from '../../database/errors';
 import { ChannelsModule } from '../channels/channels.module';
@@ -90,7 +89,7 @@ export class MockChannelSimulationController {
   @ApiOperation({ summary: 'Simulate the mock OTA sending a reservation created/modified/cancelled webhook' })
   @ApiEnvelope(WebhookReceiptDto)
   @ApiStandardErrors({ notFound: true })
-  simulateReservation(@Param('propertyId', ParseObjectIdPipe) _propertyId: Types.ObjectId, @Body() dto: SimulateReservationDto) {
+  simulateReservation(@Param('propertyId', ParseUuidPipe) _propertyId: string, @Body() dto: SimulateReservationDto) {
     this.assertEnabled();
     const externalReservationId = dto.externalReservationId ?? `MOCKRES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const nights = eachNight(toDateOnly(dto.checkIn), toDateOnly(dto.checkOut)).length;
@@ -125,7 +124,7 @@ export class MockChannelSimulationController {
   @ApiOperation({ summary: 'Make the next N pushes to the mock OTA fail (tests retries and failure handling)' })
   @ApiEnvelope(OkDto)
   @ApiStandardErrors({ notFound: true })
-  simulateFailures(@Param('propertyId', ParseObjectIdPipe) _propertyId: Types.ObjectId, @Body() dto: SimulateFailuresDto) {
+  simulateFailures(@Param('propertyId', ParseUuidPipe) _propertyId: string, @Body() dto: SimulateFailuresDto) {
     this.assertEnabled();
     this.store.failNextPushes(dto.count);
     return { ok: true };

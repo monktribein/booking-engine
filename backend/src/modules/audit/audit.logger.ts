@@ -1,6 +1,5 @@
 import { Global, Injectable, Logger, Module } from '@nestjs/common';
-import type { ClientSession } from 'mongodb';
-import type { Types } from 'mongoose';
+import type { Db } from '../../database/kysely';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { AuditService } from '../../database/services/audit.service';
 
@@ -12,14 +11,14 @@ export interface AuditActor {
 export interface AuditRecord {
   action: string;
   entityType: string;
-  entityId: Types.ObjectId;
-  propertyId?: Types.ObjectId | null;
-  organizationId?: Types.ObjectId | null;
+  entityId: string;
+  propertyId?: string | null;
+  organizationId?: string | null;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   metadata?: Record<string, unknown>;
   /** Override the actor (e.g. a failed login has no authenticated user). */
-  userId?: Types.ObjectId | null;
+  userId?: string | null;
 }
 
 /**
@@ -33,7 +32,7 @@ export class AuditLogger {
 
   constructor(private readonly audit: AuditService) {}
 
-  async log(actor: AuditActor, rec: AuditRecord, session: ClientSession | null = null): Promise<void> {
+  async log(actor: AuditActor, rec: AuditRecord, session: Db | null = null): Promise<void> {
     await this.audit.record(session, {
       organizationId: rec.organizationId ?? actor.user?.organizationId ?? null,
       propertyId: rec.propertyId ?? null,

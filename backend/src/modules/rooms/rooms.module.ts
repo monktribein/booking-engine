@@ -1,12 +1,11 @@
 import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { ChangeRoomStatusDto, CreateRoomDto, RoomDto, UpdateRoomDto } from './rooms.dto';
 import { RoomsService } from './rooms.service';
 
@@ -25,7 +24,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Physical rooms of a room type' })
   @ApiEnvelope(RoomDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  list(@Param('roomTypeId', ParseObjectIdPipe) roomTypeId: Types.ObjectId) {
+  list(@Param('roomTypeId', ParseUuidPipe) roomTypeId: string) {
     return this.rooms.list(roomTypeId);
   }
 
@@ -34,7 +33,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Add a physical room (e.g. 104). Future inventory of the type grows by one.' })
   @ApiEnvelope(RoomDto, { status: 201 })
   @ApiStandardErrors({ notFound: true, conflict: 'DUPLICATE' })
-  create(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('roomTypeId', ParseObjectIdPipe) roomTypeId: Types.ObjectId, @Body() dto: CreateRoomDto) {
+  create(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('roomTypeId', ParseUuidPipe) roomTypeId: string, @Body() dto: CreateRoomDto) {
     return this.rooms.create(user, meta, roomTypeId, dto);
   }
 
@@ -43,7 +42,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Get a room' })
   @ApiEnvelope(RoomDto)
   @ApiStandardErrors({ notFound: true })
-  get(@Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  get(@Param('id', ParseUuidPipe) id: string) {
     return this.rooms.get(id);
   }
 
@@ -52,7 +51,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Edit a room or move it to another room type (capacity moves with it)' })
   @ApiEnvelope(RoomDto)
   @ApiStandardErrors({ notFound: true, conflict: 'DUPLICATE / ROOM_ASSIGNMENT_CONFLICT / INVALID_STATE_TRANSITION' })
-  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdateRoomDto) {
+  update(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateRoomDto) {
     return this.rooms.update(user, meta, id, dto);
   }
 
@@ -62,7 +61,7 @@ export class RoomsController {
   @ApiOperation({ summary: 'Set AVAILABLE / CLEANING / MAINTENANCE / BLOCKED (optionally blocking inventory until a date)' })
   @ApiEnvelope(RoomStatusResultDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION / ROOM_NOT_AVAILABLE' })
-  changeStatus(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: ChangeRoomStatusDto) {
+  changeStatus(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: ChangeRoomStatusDto) {
     return this.rooms.changeStatus(user, meta, id, dto);
   }
 }

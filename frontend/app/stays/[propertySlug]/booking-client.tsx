@@ -16,15 +16,17 @@ export function PublicBookingClient({
   initialRoomTypes,
   defaultCheckIn,
   defaultCheckOut,
+  defaultAdults = 2,
 }: {
   propertySlug: string;
   currency: string;
   initialRoomTypes: PublicRoomType[];
   defaultCheckIn: string;
   defaultCheckOut: string;
+  defaultAdults?: number;
 }) {
   const router = useRouter();
-  const [searchParams, setSearchParams] = useState<SearchParams>({ checkIn: defaultCheckIn, checkOut: defaultCheckOut, adults: 2, children: 0 });
+  const [searchParams, setSearchParams] = useState<SearchParams>({ checkIn: defaultCheckIn, checkOut: defaultCheckOut, adults: defaultAdults, children: 0 });
 
   const query = useQuery({
     queryKey: ['public-availability', propertySlug, searchParams],

@@ -1,18 +1,17 @@
 import { Controller, Get, HttpCode, Injectable, Module, Param, Post, Query } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsEnum, IsMongoId, IsOptional, IsString, Length } from 'class-validator';
-import { Connection, Types } from 'mongoose';
+import { IsEnum, IsUUID, IsOptional, IsString, Length } from 'class-validator';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta, Roles } from '../../common/decorators';
 import { PaginationQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe, escapeRegex, pageParams, toObjectId } from '../../common/utils';
+import { ParseUuidPipe, escapeLike, pageParams, toUuid } from '../../common/utils';
 import { ChannelCode, PropertyStatus, ReservationStatus, SyncJobStatus, SyncLogStatus, UserRole, WebhookEventStatus } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
+import { attachRooms } from '../../database/reservation-store';
 import { JobsProducer } from '../../jobs/jobs.producer';
 import { OutboxDispatcher } from '../../jobs/outbox.dispatcher';
 import { ALL_QUEUES } from '../../jobs/queues';
@@ -26,22 +25,22 @@ class AdminPropertiesQueryDto extends PaginationQueryDto {
 }
 
 class AdminReservationsQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() propertyId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() propertyId?: string;
   @ApiPropertyOptional({ enum: ReservationStatus }) @IsOptional() @IsEnum(ReservationStatus) status?: ReservationStatus;
   @ApiPropertyOptional({ description: 'Reservation code or external id' }) @IsOptional() @IsString() @Length(1, 100) q?: string;
 }
 
 class SyncErrorsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: ChannelCode }) @IsOptional() @IsEnum(ChannelCode) channel?: ChannelCode;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() propertyId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() propertyId?: string;
 }
 
 class AuditQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() propertyId?: string;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() userId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() propertyId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() userId?: string;
   @ApiPropertyOptional({ example: 'reservation.cancel' }) @IsOptional() @IsString() @Length(1, 100) action?: string;
   @ApiPropertyOptional({ example: 'Reservation' }) @IsOptional() @IsString() @Length(1, 60) entityType?: string;
-  @ApiPropertyOptional() @IsOptional() @IsMongoId() entityId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUUID() entityId?: string;
 }
 
 class QueueStatsDto {
@@ -55,92 +54,123 @@ class GenericItemDto {
 
 @Injectable()
 export class AdminService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly producer: JobsProducer,
     private readonly outbox: OutboxDispatcher,
     private readonly webhookWorker: WebhookJobHandler,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
-  private async page<T>(model: { find: Function; countDocuments: Function }, filter: object, q: PaginationQueryDto, sort: object, projection: object = {}) {
+  async properties(q: AdminPropertiesQueryDto) {
     const p = pageParams(q.page, q.limit);
+    let query = this.db.selectFrom('properties');
+    if (q.status) query = query.where('status', '=', q.status);
+    if (q.q) {
+      const like = `%${escapeLike(q.q)}%`;
+      query = query.where((w) => w.or([w('name', 'ilike', like), w('slug', '=', q.q!.toLowerCase()), w('city', 'ilike', like)]));
+    }
     const [items, total] = await Promise.all([
-      (model.find(filter, projection) as { sort: Function }).sort(sort).skip(p.skip).limit(p.limit).lean() as Promise<T[]>,
-      model.countDocuments(filter) as Promise<number>,
+      query.selectAll().orderBy('createdAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
+      query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
     ]);
-    return { items, page: p.page, limit: p.limit, total };
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
-  properties(q: AdminPropertiesQueryDto) {
-    const filter: Record<string, unknown> = {};
-    if (q.status) filter.status = q.status;
-    if (q.q) filter.$or = [{ name: new RegExp(escapeRegex(q.q), 'i') }, { slug: q.q.toLowerCase() }, { city: new RegExp(escapeRegex(q.q), 'i') }];
-    return this.page(this.m.Property, filter, q, { createdAt: -1 });
-  }
-
-  reservations(q: AdminReservationsQueryDto) {
-    const filter: Record<string, unknown> = {};
-    if (q.propertyId) filter.propertyId = toObjectId(q.propertyId, 'propertyId');
-    if (q.status) filter.status = q.status;
-    if (q.q) filter.$or = [{ reservationCode: q.q.toUpperCase() }, { externalReservationId: q.q }];
-    return this.page(this.m.Reservation, filter, q, { createdAt: -1 }, { statusHistory: 0 });
+  async reservations(q: AdminReservationsQueryDto) {
+    const p = pageParams(q.page, q.limit);
+    let query = this.db.selectFrom('reservations');
+    if (q.propertyId) query = query.where('propertyId', '=', toUuid(q.propertyId, 'propertyId'));
+    if (q.status) query = query.where('status', '=', q.status);
+    if (q.q) query = query.where((w) => w.or([w('reservationCode', '=', q.q!.toUpperCase()), w('externalReservationId', '=', q.q!)]));
+    const [rows, total] = await Promise.all([
+      query.selectAll().orderBy('createdAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
+      query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
+    ]);
+    // The status history is omitted from lists.
+    const items = (await attachRooms(this.db, rows)).map(({ statusHistory: _omit, ...r }) => r);
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
   async syncErrors(q: SyncErrorsQueryDto) {
-    const filter: Record<string, unknown> = { status: { $in: [SyncJobStatus.FAILED, SyncJobStatus.RETRYING] } };
-    if (q.channel) filter.channel = q.channel;
-    if (q.propertyId) filter.propertyId = toObjectId(q.propertyId, 'propertyId');
-    const jobs = await this.page(this.m.SyncJob, filter, q, { updatedAt: -1 });
-    const recentFailures = await this.m.SyncLog.find({ status: SyncLogStatus.FAILED, ...(q.channel ? { channel: q.channel } : {}) })
-      .sort({ createdAt: -1 })
+    const p = pageParams(q.page, q.limit);
+    let jobsQ = this.db.selectFrom('syncJobs').where('status', 'in', [SyncJobStatus.FAILED, SyncJobStatus.RETRYING]);
+    if (q.channel) jobsQ = jobsQ.where('channel', '=', q.channel);
+    if (q.propertyId) jobsQ = jobsQ.where('propertyId', '=', toUuid(q.propertyId, 'propertyId'));
+    const [jobItems, jobTotal] = await Promise.all([
+      jobsQ.selectAll().orderBy('updatedAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
+      jobsQ.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
+    ]);
+    const jobs = { items: jobItems, page: p.page, limit: p.limit, total: Number(jobTotal.n) };
+    let logsQ = this.db.selectFrom('syncLogs').selectAll().where('status', '=', SyncLogStatus.FAILED);
+    if (q.channel) logsQ = logsQ.where('channel', '=', q.channel);
+    const recentFailures = await logsQ.orderBy('createdAt', 'desc').limit(50).execute();
+    const failedWebhooks = await this.db
+      .selectFrom('webhookEvents')
+      .select(['id', 'channel', 'propertyId', 'eventType', 'externalEventId', 'status', 'attempts', 'error', 'createdAt', 'updatedAt'])
+      .where('status', '=', WebhookEventStatus.FAILED)
+      .orderBy('updatedAt', 'desc')
       .limit(50)
-      .lean();
-    const failedWebhooks = await this.m.WebhookEvent.find({ status: WebhookEventStatus.FAILED }, { payload: 0 }).sort({ updatedAt: -1 }).limit(50).lean();
+      .execute();
     const failedQueueJobs = await Promise.all(ALL_QUEUES.map(async (queue) => ({ queue, jobs: await this.producer.failed(queue, 20) })));
     return { syncJobs: jobs, recentFailures, failedWebhooks, failedQueueJobs };
   }
 
-  channelConnections(q: PaginationQueryDto) {
-    // Encrypted token fields are select:false and are never loaded here.
-    return this.page(this.m.ChannelConnection, {}, q, { updatedAt: -1 });
+  async channelConnections(q: PaginationQueryDto) {
+    const p = pageParams(q.page, q.limit);
+    const [items, total] = await Promise.all([
+      // Encrypted token columns are never selected.
+      this.db
+        .selectFrom('channelConnections')
+        .select(['id', 'propertyId', 'channel', 'status', 'externalAccountId', 'expiresAt', 'connectedAt', 'lastSyncAt', 'lastError', 'createdAt', 'updatedAt'])
+        .orderBy('updatedAt', 'desc')
+        .orderBy('id', 'desc')
+        .offset(p.skip)
+        .limit(p.limit)
+        .execute(),
+      this.db.selectFrom('channelConnections').select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
+    ]);
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
-  auditLogs(q: AuditQueryDto, propertyId?: Types.ObjectId) {
-    const filter: Record<string, unknown> = {};
-    if (propertyId ?? q.propertyId) filter.propertyId = propertyId ?? toObjectId(q.propertyId!, 'propertyId');
-    if (q.userId) filter.userId = toObjectId(q.userId, 'userId');
-    if (q.action) filter.action = q.action;
-    if (q.entityType) filter.entityType = q.entityType;
-    if (q.entityId) filter.entityId = toObjectId(q.entityId, 'entityId');
-    return this.page(this.m.AuditLog, filter, q, { createdAt: -1 });
+  async auditLogs(q: AuditQueryDto, propertyId?: string) {
+    const p = pageParams(q.page, q.limit);
+    let query = this.db.selectFrom('auditLogs');
+    if (propertyId ?? q.propertyId) query = query.where('propertyId', '=', propertyId ?? toUuid(q.propertyId!, 'propertyId'));
+    if (q.userId) query = query.where('userId', '=', toUuid(q.userId, 'userId'));
+    if (q.action) query = query.where('action', '=', q.action);
+    if (q.entityType) query = query.where('entityType', '=', q.entityType);
+    if (q.entityId) query = query.where('entityId', '=', toUuid(q.entityId, 'entityId'));
+    const [items, total] = await Promise.all([
+      query.selectAll().orderBy('createdAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
+      query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
+    ]);
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
   queues() {
     return this.producer.stats();
   }
 
-  async retrySyncJob(user: AuthUser, meta: RequestMeta, id: Types.ObjectId) {
-    const job = await this.m.SyncJob.findOneAndUpdate(
-      { _id: id, status: { $in: [SyncJobStatus.FAILED, SyncJobStatus.RETRYING] } },
-      { $set: { status: SyncJobStatus.PENDING, attempts: 0, enqueuedAt: null, lockedBy: null, lockedUntil: null, scheduledAt: new Date() } },
-      { new: true },
-    ).lean();
+  async retrySyncJob(user: AuthUser, meta: RequestMeta, id: string) {
+    const job = await this.db
+      .updateTable('syncJobs')
+      .set({ status: SyncJobStatus.PENDING, attempts: 0, enqueuedAt: null, lockedBy: null, lockedUntil: null, scheduledAt: new Date() })
+      .where('id', '=', id)
+      .where('status', 'in', [SyncJobStatus.FAILED, SyncJobStatus.RETRYING])
+      .returning(['id', 'propertyId'])
+      .executeTakeFirst();
     if (!job) throw new NotFoundError('Failed sync job', id);
     await this.audit.log({ user, meta }, { action: 'admin.sync_job_retry', entityType: 'SyncJob', entityId: id, propertyId: job.propertyId });
     void this.outbox.flush();
     return { ok: true };
   }
 
-  async retryWebhook(user: AuthUser, meta: RequestMeta, id: Types.ObjectId) {
-    const ev = await this.m.WebhookEvent.findOne({ _id: id, status: WebhookEventStatus.FAILED }, { propertyId: 1 }).lean();
+  async retryWebhook(user: AuthUser, meta: RequestMeta, id: string) {
+    const ev = await this.db.selectFrom('webhookEvents').select('propertyId').where('id', '=', id).where('status', '=', WebhookEventStatus.FAILED).executeTakeFirst();
     if (!ev) throw new NotFoundError('Failed webhook event', id);
     await this.webhookWorker.retry(id);
-    await this.audit.log({ user, meta }, { action: 'admin.webhook_retry', entityType: 'WebhookEvent', entityId: id, propertyId: ev.propertyId });
+    await this.audit.log({ user, meta }, { action: 'admin.webhook_retry', entityType: 'WebhookEvent', entityId: id, propertyId: ev.propertyId ?? undefined });
     return { ok: true };
   }
 }
@@ -203,7 +233,7 @@ export class AdminController {
   @ApiOperation({ summary: 'Retry a failed sync job' })
   @ApiEnvelope(OkDto)
   @ApiStandardErrors({ notFound: true })
-  retrySync(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  retrySync(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.admin.retrySyncJob(user, meta, id);
   }
 
@@ -212,7 +242,7 @@ export class AdminController {
   @ApiOperation({ summary: 'Reprocess a failed webhook event (idempotent)' })
   @ApiEnvelope(OkDto)
   @ApiStandardErrors({ notFound: true })
-  retryWebhook(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  retryWebhook(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.admin.retryWebhook(user, meta, id);
   }
 }
@@ -228,7 +258,7 @@ export class PropertyAuditController {
   @ApiOperation({ summary: 'Audit trail of one property' })
   @ApiEnvelope(GenericItemDto, { paginated: true })
   @ApiStandardErrors({ notFound: true })
-  list(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Query() q: AuditQueryDto) {
+  list(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query() q: AuditQueryDto) {
     return this.admin.auditLogs(q, propertyId);
   }
 }

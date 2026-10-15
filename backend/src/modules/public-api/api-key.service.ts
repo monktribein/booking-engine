@@ -1,25 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { Connection, Types } from 'mongoose';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
+import { toUuid } from '../../common/utils';
+import type { ApiKey } from '../../database/db-types';
 import { API_SCOPES, ApiKeyStatus } from '../../database/enums';
 import { DomainValidationError, NotFoundError, UnauthorizedError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
 
 /** What an authenticated API request carries. Everything an endpoint needs for tenant isolation. */
 export interface ApiPrincipal {
-  apiKeyId: Types.ObjectId;
-  organizationId: Types.ObjectId;
+  apiKeyId: string;
+  organizationId: string;
   /** Empty = all properties of the organization. */
-  propertyIds: Types.ObjectId[];
+  propertyIds: string[];
   scopes: string[];
 }
 
 const KEY_RE = /^tvk_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$/;
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-/** lastUsedAt is written at most this often per key, so a busy client does not turn every read into a write. */
+/** last_used_at is written at most this often per key, so a busy client does not turn every read into a write. */
 const TOUCH_INTERVAL_MS = 60_000;
 
 export const sha256Hex = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -30,23 +30,21 @@ export function generateApiKey(): { key: string; prefix: string; keyHash: string
   return { key, prefix, keyHash: sha256Hex(key) };
 }
 
+type KeyView = Pick<ApiKey, 'id' | 'name' | 'prefix' | 'scopes' | 'propertyIds' | 'status' | 'expiresAt' | 'lastUsedAt' | 'revokedAt' | 'createdAt'>;
+
 @Injectable()
 export class ApiKeyService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   /** Resolves a presented key to its principal, or throws 401. Never reveals which check failed. */
   async authenticate(raw: string): Promise<ApiPrincipal> {
     const bad = () => new UnauthorizedError('Invalid API key', 'API_KEY_INVALID');
     const match = KEY_RE.exec(raw);
     if (!match) throw bad();
-    const doc = await this.m.ApiKey.findOne({ prefix: match[1] }).select('+keyHash').lean();
+    const doc = await this.db.selectFrom('apiKeys').selectAll().where('prefix', '=', match[1]).executeTakeFirst();
     if (!doc) throw bad();
     const presented = Buffer.from(sha256Hex(raw), 'hex');
     const stored = Buffer.from(doc.keyHash, 'hex');
@@ -55,9 +53,9 @@ export class ApiKeyService {
     if (doc.expiresAt && doc.expiresAt.getTime() <= Date.now()) throw new UnauthorizedError('API key has expired', 'API_KEY_EXPIRED');
 
     if (!doc.lastUsedAt || Date.now() - doc.lastUsedAt.getTime() > TOUCH_INTERVAL_MS) {
-      void this.m.ApiKey.updateOne({ _id: doc._id }, { $set: { lastUsedAt: new Date() } }).catch(() => undefined);
+      void this.db.updateTable('apiKeys').set({ lastUsedAt: new Date() }).where('id', '=', doc.id).execute().catch(() => undefined);
     }
-    return { apiKeyId: doc._id, organizationId: doc.organizationId, propertyIds: doc.propertyIds, scopes: doc.scopes };
+    return { apiKeyId: doc.id, organizationId: doc.organizationId, propertyIds: doc.propertyIds, scopes: doc.scopes };
   }
 
   // ------------------------------------------------------------ management (signed-in organization owners)
@@ -70,54 +68,62 @@ export class ApiKeyService {
     const propertyIds = await this.ownedProperties(organizationId, input.propertyIds);
 
     const { key, prefix, keyHash } = generateApiKey();
-    const doc = await this.m.ApiKey.create({
-      organizationId,
-      propertyIds,
-      name: input.name,
-      prefix,
-      keyHash,
-      scopes: [...new Set(input.scopes)],
-      expiresAt: input.expiresAt ?? null,
-      createdBy: user.userId,
-    });
-    await this.audit.log({ user, meta }, { action: 'api_key.create', entityType: 'ApiKey', entityId: doc._id, after: { name: input.name, prefix, scopes: input.scopes } });
+    const doc = await this.db
+      .insertInto('apiKeys')
+      .values({
+        organizationId,
+        propertyIds,
+        name: input.name.trim(),
+        prefix,
+        keyHash,
+        scopes: [...new Set(input.scopes)],
+        expiresAt: input.expiresAt ?? null,
+        lastUsedAt: null,
+        revokedAt: null,
+        createdBy: user.userId,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    await this.audit.log({ user, meta }, { action: 'api_key.create', entityType: 'ApiKey', entityId: doc.id, after: { name: doc.name, prefix, scopes: input.scopes } });
     // The only moment the secret exists in clear text.
-    return { ...this.view(doc.toObject()), key };
+    return { ...this.view(doc), key };
   }
 
   async list(user: AuthUser) {
-    const rows = await this.m.ApiKey.find({ organizationId: this.orgOf(user) }).sort({ createdAt: -1 }).lean();
+    const rows = await this.db.selectFrom('apiKeys').selectAll().where('organizationId', '=', this.orgOf(user)).orderBy('createdAt', 'desc').execute();
     return rows.map((r) => this.view(r));
   }
 
-  async revoke(user: AuthUser, meta: RequestMeta, id: Types.ObjectId) {
-    const doc = await this.m.ApiKey.findOneAndUpdate(
-      { _id: id, organizationId: this.orgOf(user) },
-      { $set: { status: ApiKeyStatus.REVOKED, revokedAt: new Date() } },
-      { new: true },
-    ).lean();
+  async revoke(user: AuthUser, meta: RequestMeta, id: string) {
+    const doc = await this.db
+      .updateTable('apiKeys')
+      .set({ status: ApiKeyStatus.REVOKED, revokedAt: new Date() })
+      .where('id', '=', id)
+      .where('organizationId', '=', this.orgOf(user))
+      .returningAll()
+      .executeTakeFirst();
     if (!doc) throw new NotFoundError('ApiKey', id);
-    await this.audit.log({ user, meta }, { action: 'api_key.revoke', entityType: 'ApiKey', entityId: doc._id, after: { prefix: doc.prefix } });
+    await this.audit.log({ user, meta }, { action: 'api_key.revoke', entityType: 'ApiKey', entityId: doc.id, after: { prefix: doc.prefix } });
     return this.view(doc);
   }
 
-  private orgOf(user: AuthUser): Types.ObjectId {
+  private orgOf(user: AuthUser): string {
     if (!user.organizationId) throw new DomainValidationError('This account has no organization');
     return user.organizationId;
   }
 
   /** Property ids must belong to the caller's organization: a key can never be scoped to someone else's property. */
-  private async ownedProperties(organizationId: Types.ObjectId, ids?: string[]): Promise<Types.ObjectId[]> {
+  private async ownedProperties(organizationId: string, ids?: string[]): Promise<string[]> {
     if (!ids?.length) return [];
-    const oids = ids.map((i) => new Types.ObjectId(i));
-    const found = await this.m.Property.countDocuments({ _id: { $in: oids }, organizationId });
-    if (found !== new Set(ids).size) throw new DomainValidationError('propertyIds must all belong to your organization');
-    return oids;
+    const normalized = [...new Set(ids.map((i) => toUuid(i, 'propertyIds')))];
+    const found = await this.db.selectFrom('properties').select('id').where('id', 'in', normalized).where('organizationId', '=', organizationId).execute();
+    if (found.length !== normalized.length) throw new DomainValidationError('propertyIds must all belong to your organization');
+    return normalized;
   }
 
-  private view(d: { _id: Types.ObjectId; name: string; prefix: string; scopes: string[]; propertyIds: Types.ObjectId[]; status: string; expiresAt: Date | null; lastUsedAt: Date | null; revokedAt: Date | null; createdAt: Date }) {
+  private view(d: KeyView) {
     return {
-      _id: d._id,
+      id: d.id,
       name: d.name,
       /** Non-secret; lets people recognise a key (tvk_abcd1234_...) in the dashboard. */
       keyPrefix: `tvk_${d.prefix}_`,

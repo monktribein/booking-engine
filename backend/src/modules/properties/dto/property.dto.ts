@@ -7,7 +7,7 @@ import {
   IsInt,
   IsLatitude,
   IsLongitude,
-  IsMongoId,
+  IsUUID,
   IsNumber,
   IsOptional,
   IsString,
@@ -61,7 +61,7 @@ export class CreatePropertyDto {
   status?: PropertyStatus;
   @ApiPropertyOptional({ description: 'SUPER_ADMIN only: organization to create the property in' })
   @IsOptional()
-  @IsMongoId()
+  @IsUUID()
   organizationId?: string;
 }
 

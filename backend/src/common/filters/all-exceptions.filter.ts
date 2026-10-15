@@ -1,8 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import type { Response } from 'express';
-import mongoose from 'mongoose';
-import { isDuplicateKeyError } from '../../database/common/schema-helpers';
 import { DomainError } from '../../database/errors';
 
 export interface ErrorBody {
@@ -98,13 +96,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Plain 500s may carry internals; deliberate 5xx (e.g. 503 from /health) keep their message.
       return out(status, code, status === 500 ? 'Internal server error' : message, typeof r === 'object' && status !== 500 ? r.details : undefined);
     }
-    if (e instanceof mongoose.Error.ValidationError) {
-      const details = Object.fromEntries(Object.entries(e.errors).map(([k, v]) => [k, v.message]));
-      return out(400, 'VALIDATION_ERROR', 'Validation failed', details);
+    // PostgreSQL errors (SQLSTATE). Driver messages can contain data, so only generic text leaves the API.
+    switch ((e as { code?: string })?.code) {
+      case '23505':
+        return out(409, 'DUPLICATE', 'A record with the same unique value already exists');
+      case '23503':
+        return out(409, 'CONFLICT', 'The record refers to something that does not exist, or is still in use');
+      case '23514':
+        return out(400, 'VALIDATION_ERROR', 'A value is outside the allowed range');
+      case '22P02':
+      case '22007':
+      case '22003':
+        return out(400, 'VALIDATION_ERROR', 'A value has an invalid format');
     }
-    if (e instanceof mongoose.Error.CastError) return out(400, 'VALIDATION_ERROR', `Invalid value for ${e.path}`);
-    if (e instanceof mongoose.Error.StrictModeError) return out(400, 'VALIDATION_ERROR', `Unknown field ${e.path}`);
-    if (isDuplicateKeyError(e)) return out(409, 'DUPLICATE', 'A record with the same unique value already exists');
     if ((e as { type?: string })?.type === 'entity.parse.failed') return out(400, 'BAD_REQUEST', 'Malformed JSON body');
     if ((e as { type?: string })?.type === 'entity.too.large') return out(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large');
     return out(HttpStatus.INTERNAL_SERVER_ERROR, 'INTERNAL_ERROR', 'Internal server error');

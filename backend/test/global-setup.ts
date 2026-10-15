@@ -1,11 +1,13 @@
-import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { startEphemeralPg, type EphemeralPg } from '../scripts/embedded-pg';
 
 /**
- * One throwaway single-node replica set for the whole run (transactions need a
- * replica set). Each test file uses its own database on it.
+ * One throwaway PostgreSQL server for the whole run; every test app creates (and drops) its own database on it.
+ * Set TEST_DATABASE_URL to use an existing local server instead (it needs a role that may CREATE DATABASE; only
+ * databases named tirvona_test_* are ever created or dropped).
  */
 export default async function globalSetup(): Promise<void> {
-  const rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
-  (globalThis as unknown as { __MONGO_RS__: MongoMemoryReplSet }).__MONGO_RS__ = rs;
-  process.env.TEST_MONGODB_URI = rs.getUri();
+  if (process.env.TEST_DATABASE_URL) return;
+  const pg = await startEphemeralPg();
+  (globalThis as unknown as { __PG__: EphemeralPg }).__PG__ = pg;
+  process.env.TEST_DATABASE_URL = pg.url();
 }

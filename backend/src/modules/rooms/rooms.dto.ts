@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsMongoId, IsOptional, IsString, Length } from 'class-validator';
+import { IsEnum, IsUUID, IsOptional, IsString, Length } from 'class-validator';
 import { IsDateOnly } from '../../common/dto';
 import { RoomStatus } from '../../database/enums';
 
@@ -15,7 +15,7 @@ export class UpdateRoomDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(0, 2000) notes?: string;
   @ApiPropertyOptional({ description: 'Move the room to another room type of the same property' })
   @IsOptional()
-  @IsMongoId()
+  @IsUUID()
   roomTypeId?: string;
 }
 

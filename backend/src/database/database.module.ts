@@ -1,43 +1,39 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import type { Pool } from 'pg';
 import type { AppConfig } from '../config/configuration';
-import { MODEL_DEFINITIONS } from './models';
+import { DB_TOKEN, Db, POOL_TOKEN, createDb, createPool } from './kysely';
+export { InjectDb } from './kysely';
 import { DATABASE_SERVICES } from './services';
 
+@Injectable()
+class PoolShutdown implements OnApplicationShutdown {
+  constructor(@Inject(POOL_TOKEN) private readonly pool: Pool) {}
+  async onApplicationShutdown(): Promise<void> {
+    await this.pool.end().catch(() => undefined);
+  }
+}
+
 /**
- * One MongoDB database for the whole modular monolith. Feature modules use
- * these services and models. None of them opens its own connection or database.
+ * One PostgreSQL database (Supabase in production) for the whole modular monolith. Feature modules use these services
+ * and the shared Kysely instance. None of them opens its own connection. The schema is owned by SQL migrations
+ * (`npm run db:migrate`), never created by the application at boot.
  */
 @Global()
 @Module({
-  imports: [
-    MongooseModule.forRootAsync({
+  providers: [
+    {
+      provide: POOL_TOKEN,
       inject: [ConfigService],
-      useFactory: (config: ConfigService<AppConfig, true>) => {
-        const mongodb = config.get('mongodb', { infer: true });
-        const isProd = config.get('env', { infer: true }) === 'production';
-        return {
-          uri: mongodb.uri,
-          dbName: mongodb.dbName,
-          appName: 'tirvona-api',
-          // Indexes and validators are created by `npm run db:setup` in CI/CD, never by app boot in production.
-          autoIndex: !isProd,
-          autoCreate: !isProd,
-          maxPoolSize: mongodb.maxPoolSize,
-          minPoolSize: 2,
-          serverSelectionTimeoutMS: 10_000,
-          socketTimeoutMS: 45_000,
-          retryWrites: true,
-          retryReads: true,
-          w: 'majority',
-          readPreference: 'primary',
-        };
+      useFactory: (config: ConfigService<AppConfig, true>): Pool => {
+        const d = config.get('database', { infer: true });
+        return createPool({ url: d.url, poolMax: d.poolMax, ssl: d.ssl, caCert: d.caCert });
       },
-    }),
-    MongooseModule.forFeature(MODEL_DEFINITIONS),
+    },
+    { provide: DB_TOKEN, inject: [POOL_TOKEN], useFactory: (pool: Pool): Db => createDb(pool) },
+    PoolShutdown,
+    ...DATABASE_SERVICES,
   ],
-  providers: DATABASE_SERVICES,
-  exports: [MongooseModule, ...DATABASE_SERVICES],
+  exports: [POOL_TOKEN, DB_TOKEN, ...DATABASE_SERVICES],
 })
 export class DatabaseModule {}

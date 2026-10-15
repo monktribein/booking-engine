@@ -38,6 +38,16 @@ export class ForgotPasswordDto {
   @ApiProperty() @IsEmail() @MaxLength(254) email!: string;
 }
 
+export class ChangePasswordDto {
+  @ApiProperty({ description: 'The password in use now' }) @IsString() @Length(1, 128) currentPassword!: string;
+  @ApiProperty({ minLength: 10 })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(128)
+  @Matches(PASSWORD_RULE, { message: PASSWORD_MSG })
+  newPassword!: string;
+}
+
 export class ResetPasswordDto {
   @ApiProperty() @IsString() @Length(20, 200) token!: string;
   @ApiProperty({ minLength: 10 })

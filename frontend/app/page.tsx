@@ -1,17 +1,11 @@
 import React from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Sparkles,
   LayoutDashboard,
-  Calendar,
-  Radio,
-  ShieldCheck,
   ArrowRight,
   ExternalLink,
-  BedDouble,
-  CreditCard,
   Building2,
   CheckCircle2,
 } from 'lucide-react';
@@ -36,9 +30,9 @@ export default function RootHomePage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Link href="/stays/radha-ashram" target="_blank">
+            <Link href="/stays">
               <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-                Guest Booking Engine <ExternalLink className="h-3.5 w-3.5 ml-1" />
+                Find a stay <ExternalLink className="h-3.5 w-3.5 ml-1" />
               </Button>
             </Link>
             <Link href="/login">
@@ -63,7 +57,7 @@ export default function RootHomePage() {
           </h1>
 
           <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Tirvona synchronizes availability counters, rates, and direct guest holds across Airbnb, Booking.com, Agoda, and your high-conversion direct booking engine.
+            Tirvona keeps one inventory for your rooms, rates and guest holds, sells it through your direct booking engine and a public API, and is built to sync with OTA channels as partner connections are approved.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
@@ -72,9 +66,9 @@ export default function RootHomePage() {
                 Launch Owner Dashboard <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </Link>
-            <Link href="/stays/radha-ashram" target="_blank">
+            <Link href="/stays">
               <Button variant="outline" size="lg" className="w-full sm:w-auto border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-800">
-                View Public Booking Engine <ExternalLink className="h-4 w-4 ml-2" />
+                Find a stay <ExternalLink className="h-4 w-4 ml-2" />
               </Button>
             </Link>
           </div>
@@ -106,7 +100,7 @@ export default function RootHomePage() {
               {[
                 'Interactive tape-chart calendar (Day / Week / Month)',
                 'Atomic inventory counters with zero double-selling',
-                'Official OTA channel connections & markup formulas',
+                'Channel manager with mappings and sync jobs (OTA connections need approved partner access)',
                 'Staff role-based access control (RBAC)',
               ].map((feat, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -160,7 +154,7 @@ export default function RootHomePage() {
             </div>
 
             <div className="pt-4">
-              <Link href="/stays/radha-ashram" target="_blank" className="block">
+              <Link href="/stays" className="block">
                 <Button className="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold">
                   View Live Guest Engine ↗
                 </Button>

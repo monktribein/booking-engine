@@ -35,7 +35,7 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
       .set(tamper ? { 'x-mock-signature': 'e'.repeat(64) } : {})
       .send(w.rawBody.toString());
   };
-  const reservationsFor = (externalReservationId: string) => t.conn.db!.collection('reservations').find({ source: 'MOCK', externalReservationId }).toArray();
+  const reservationsFor = (externalReservationId: string) => t.db.selectFrom('reservations').selectAll().where('source', '=', 'MOCK').where('externalReservationId', '=', externalReservationId).execute();
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -53,13 +53,13 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
     const res = await post(event('reservation.created', 'OTA-1001')).expect(200);
     expect(res.body.data).toMatchObject({ received: true, duplicate: false });
     // HTTP returned before processing: the event is stored first.
-    const stored = await t.conn.db!.collection('webhook_events').findOne({ _id: new (require('mongoose').Types.ObjectId)(res.body.data.eventId) });
+    const stored = await t.db.selectFrom('webhookEvents').selectAll().where('id', '=', res.body.data.eventId).executeTakeFirst();
     expect(stored).toBeTruthy();
 
     await t.drain();
     const [r] = await reservationsFor('OTA-1001');
     expect(r).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'CHANNEL_COLLECTED', total: 2 * 410000 + 2 * 20500 });
-    expect((await t.conn.db!.collection('webhook_events').findOne({ externalEventId: stored!.externalEventId }))!.status).toBe('PROCESSED');
+    expect((await t.db.selectFrom('webhookEvents').selectAll().where('externalEventId', '=', stored!.externalEventId).executeTakeFirstOrThrow()).status).toBe('PROCESSED');
     expect(store.acknowledged.has('OTA-1001')).toBe(true);
     const days = await inventoryFor(t, owner.token, s, day(4), day(6));
     expect(days.map((d) => d.available)).toEqual([4, 4]);
@@ -90,7 +90,7 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
     expect(res.body.error.code).toBe('INVALID_SIGNATURE');
     await t.drain();
     expect(await reservationsFor('OTA-EVIL')).toHaveLength(0);
-    expect(await t.conn.db!.collection('webhook_events').countDocuments({ signatureValid: false, status: 'IGNORED' })).toBe(1);
+    expect(Number((await t.db.selectFrom('webhookEvents').select((eb) => eb.fn.countAll<string>().as('n')).where('signatureValid', '=', false).where('status', '=', 'IGNORED').executeTakeFirstOrThrow()).n)).toBe(1);
   });
 
   it('modification moves the stay; cancellation releases inventory (and repeats are harmless)', async () => {
@@ -115,7 +115,7 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
     body.reservation!.externalListingId = 'MOCK-UNKNOWN-LISTING';
     await post(body).expect(200);
     await t.drain();
-    const ev = await t.conn.db!.collection('webhook_events').findOne({ externalEventId: body.eventId });
+    const ev = await t.db.selectFrom('webhookEvents').selectAll().where('externalEventId', '=', body.eventId).executeTakeFirst();
     expect(ev).toMatchObject({ status: 'FAILED', attempts: 10 });
     expect(ev!.error).toMatch(/No room mapping/);
     expect(await reservationsFor('OTA-UNMAPPED')).toHaveLength(0);

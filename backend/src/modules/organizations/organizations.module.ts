@@ -1,14 +1,12 @@
 import { Body, Controller, Get, Injectable, Module, Patch } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, Length } from 'class-validator';
-import { Connection } from 'mongoose';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta, Roles } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
 import { OrganizationStatus, UserRole } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
 
 export class OrganizationDto {
@@ -25,26 +23,22 @@ export class UpdateOrganizationDto {
 
 @Injectable()
 export class OrganizationsService {
-  private readonly m: Models;
-
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly audit: AuditLogger,
-  ) {
-    this.m = getModels(connection);
-  }
+  ) {}
 
   async mine(user: AuthUser) {
     if (!user.organizationId) throw new NotFoundError('Organization', 'none');
-    const org = await this.m.Organization.findById(user.organizationId).lean();
+    const org = await this.db.selectFrom('organizations').selectAll().where('id', '=', user.organizationId).executeTakeFirst();
     if (!org) throw new NotFoundError('Organization', user.organizationId);
     return org;
   }
 
   async update(user: AuthUser, meta: RequestMeta, dto: UpdateOrganizationDto) {
     const before = await this.mine(user);
-    const org = await this.m.Organization.findByIdAndUpdate(before._id, { $set: dto }, { new: true, runValidators: true }).lean();
-    await this.audit.log({ user, meta }, { action: 'organization.update', entityType: 'Organization', entityId: before._id, before: { name: before.name }, after: dto as Record<string, unknown> });
+    const org = dto.name === undefined ? before : await this.db.updateTable('organizations').set({ name: dto.name.trim() }).where('id', '=', before.id).returningAll().executeTakeFirstOrThrow();
+    await this.audit.log({ user, meta }, { action: 'organization.update', entityType: 'Organization', entityId: before.id, before: { name: before.name }, after: dto as Record<string, unknown> });
     return org;
   }
 }

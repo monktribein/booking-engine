@@ -1,16 +1,16 @@
 import { Controller, Get, Injectable, Module, Param, Query } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { Connection, Types } from 'mongoose';
+import { sql } from 'kysely';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import { DateRangeQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { eachNight, formatDateOnly, toDateOnly } from '../../database/common/dates';
 import { ReservationStatus } from '../../database/enums';
 import { DomainValidationError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
+import { Db, InjectDb } from '../../database/kysely';
+import { d } from '../../database/sql';
 
 class OccupancyRowDto {
   @ApiProperty() date!: string;
@@ -37,11 +37,7 @@ class RevenueReportDto {
 
 @Injectable()
 export class ReportsService {
-  private readonly m: Models;
-
-  constructor(@InjectConnection() connection: Connection) {
-    this.m = getModels(connection);
-  }
+  constructor(@InjectDb() private readonly db: Db) {}
 
   private range(q: DateRangeQueryDto) {
     const from = toDateOnly(q.from);
@@ -51,46 +47,53 @@ export class ReportsService {
     return { from, to };
   }
 
-  async occupancy(propertyId: Types.ObjectId, q: DateRangeQueryDto) {
+  async occupancy(propertyId: string, q: DateRangeQueryDto) {
     const { from, to } = this.range(q);
-    const rows = await this.m.Inventory.aggregate<{ _id: Date; total: number; sold: number; blocked: number }>([
-      { $match: { propertyId, date: { $gte: from, $lt: to } } },
-      { $group: { _id: '$date', total: { $sum: '$total' }, sold: { $sum: '$sold' }, blocked: { $sum: '$blocked' } } },
-      { $sort: { _id: 1 } },
-    ]);
-    return rows.map((r) => ({
-      date: formatDateOnly(r._id),
-      total: r.total,
-      sold: r.sold,
-      blocked: r.blocked,
-      occupancyPct: r.total > r.blocked ? Math.round((r.sold / (r.total - r.blocked)) * 1000) / 10 : 0,
-    }));
+    const rows = await this.db
+      .selectFrom('inventory')
+      .select(['date', sql<string>`sum(total)`.as('total'), sql<string>`sum(sold)`.as('sold'), sql<string>`sum(blocked)`.as('blocked')])
+      .where('propertyId', '=', propertyId)
+      .where('date', '>=', d(from))
+      .where('date', '<', d(to))
+      .groupBy('date')
+      .orderBy('date')
+      .execute();
+    return rows.map((r) => {
+      const total = Number(r.total);
+      const sold = Number(r.sold);
+      const blocked = Number(r.blocked);
+      return { date: formatDateOnly(r.date), total, sold, blocked, occupancyPct: total > blocked ? Math.round((sold / (total - blocked)) * 1000) / 10 : 0 };
+    });
   }
 
   /** Revenue of stays arriving in [from, to), by source, excluding cancellations. */
-  async revenue(propertyId: Types.ObjectId, q: DateRangeQueryDto) {
+  async revenue(propertyId: string, q: DateRangeQueryDto) {
     const { from, to } = this.range(q);
     const [property, bySource, capacity] = await Promise.all([
-      this.m.Property.findById(propertyId, { currency: 1 }).lean(),
-      this.m.Reservation.aggregate<{ _id: string; bookings: number; revenue: number; roomNights: number }>([
-        { $match: { propertyId, checkIn: { $gte: from, $lt: to }, status: { $nin: [ReservationStatus.CANCELLED] } } },
-        {
-          $group: {
-            _id: '$source',
-            bookings: { $sum: 1 },
-            revenue: { $sum: { $subtract: ['$subtotal', '$discount'] } },
-            roomNights: { $sum: { $multiply: ['$nights', { $sum: '$reservationRooms.quantity' }] } },
-          },
-        },
-        { $sort: { revenue: -1 } },
-      ]),
-      this.m.Inventory.aggregate<{ n: number }>([{ $match: { propertyId, date: { $gte: from, $lt: to } } }, { $group: { _id: null, n: { $sum: '$total' } } }]),
+      this.db.selectFrom('properties').select('currency').where('id', '=', propertyId).executeTakeFirst(),
+      this.db
+        .selectFrom('reservations as r')
+        .select([
+          'r.source',
+          sql<string>`count(*)`.as('bookings'),
+          sql<string>`coalesce(sum(r.subtotal - r.discount), 0)`.as('revenue'),
+          sql<string>`coalesce(sum(r.nights * (select coalesce(sum(rr.quantity), 0) from reservation_rooms rr where rr.reservation_id = r.id)), 0)`.as('roomNights'),
+        ])
+        .where('r.propertyId', '=', propertyId)
+        .where('r.checkIn', '>=', d(from))
+        .where('r.checkIn', '<', d(to))
+        .where('r.status', '!=', ReservationStatus.CANCELLED)
+        .groupBy('r.source')
+        .orderBy(sql`sum(r.subtotal - r.discount)`, 'desc')
+        .execute(),
+      this.db.selectFrom('inventory').select(sql<string>`coalesce(sum(total), 0)`.as('n')).where('propertyId', '=', propertyId).where('date', '>=', d(from)).where('date', '<', d(to)).executeTakeFirstOrThrow(),
     ]);
-    const totalRevenue = bySource.reduce((a, r) => a + r.revenue, 0);
-    const availableRoomNights = capacity[0]?.n ?? 0;
+    const rows = bySource.map((r) => ({ source: r.source, bookings: Number(r.bookings), revenue: Number(r.revenue), roomNights: Number(r.roomNights) }));
+    const totalRevenue = rows.reduce((a, r) => a + r.revenue, 0);
+    const availableRoomNights = Number(capacity.n);
     return {
       currency: property?.currency,
-      bySource: bySource.map((r) => ({ source: r._id, bookings: r.bookings, roomNights: r.roomNights, revenue: r.revenue, adr: r.roomNights ? Math.round(r.revenue / r.roomNights) : 0 })),
+      bySource: rows.map((r) => ({ ...r, adr: r.roomNights ? Math.round(r.revenue / r.roomNights) : 0 })),
       totalRevenue,
       revPar: availableRoomNights ? Math.round(totalRevenue / availableRoomNights) : 0,
     };
@@ -107,7 +110,7 @@ export class ReportsController {
   @ApiOperation({ summary: 'Nightly occupancy (sold / sellable rooms)' })
   @ApiEnvelope(OccupancyRowDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  occupancy(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Query() q: DateRangeQueryDto) {
+  occupancy(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query() q: DateRangeQueryDto) {
     return this.reports.occupancy(propertyId, q);
   }
 
@@ -116,7 +119,7 @@ export class ReportsController {
   @ApiOperation({ summary: 'Room revenue by source with ADR and RevPAR (net of discounts, excluding tax)' })
   @ApiEnvelope(RevenueReportDto)
   @ApiStandardErrors({ notFound: true })
-  revenue(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Query() q: DateRangeQueryDto) {
+  revenue(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query() q: DateRangeQueryDto) {
     return this.reports.revenue(propertyId, q);
   }
 }

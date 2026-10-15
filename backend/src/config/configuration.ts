@@ -9,7 +9,8 @@ export interface AppConfig {
   appUrl: string;
   apiUrl: string;
   corsOrigins: string[];
-  mongodb: { uri: string; dbName: string; maxPoolSize: number };
+  /** PostgreSQL (Supabase). `url` is the connection string; see docs/DATABASE.md for which Supabase string to use. */
+  database: { url: string; poolMax: number; ssl: 'disable' | 'require' | 'verify-full' | undefined; caCert: string | null };
   redis: { url: string | null };
   smtp: { url: string | null; from: string | null };
   queue: { driver: 'bullmq' | 'inline'; workersEnabled: boolean; schedulerEnabled: boolean; prefix: string; backoffOverrideMs: number };
@@ -37,11 +38,12 @@ export default function configuration(): AppConfig {
     appUrl: e.APP_URL ?? 'http://localhost:5173',
     apiUrl: e.API_URL ?? `http://localhost:${port}`,
     corsOrigins: (e.CORS_ORIGINS ?? e.APP_URL ?? 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
-    mongodb: {
-      // MONGODB_URI is canonical; DATABASE_URL is accepted for platforms that inject that name.
-      uri: (e.MONGODB_URI || e.DATABASE_URL) as string,
-      dbName: e.MONGODB_DB ?? 'tirvona',
-      maxPoolSize: int(e.MONGODB_MAX_POOL_SIZE, 50),
+    database: {
+      url: e.DATABASE_URL as string,
+      poolMax: int(e.DATABASE_POOL_MAX, 20),
+      // Unset: disable for loopback hosts, require (encrypted) otherwise.
+      ssl: opt(e.DATABASE_SSL) as 'disable' | 'require' | 'verify-full' | undefined,
+      caCert: opt(e.DATABASE_CA_CERT),
     },
     redis: { url: opt(e.REDIS_URL) },
     // E-mail provider (any SMTP service). Unset = e-mails are only logged.

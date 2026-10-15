@@ -12,13 +12,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const standalone = path.join(root, '.next', 'standalone');
+const dist = process.env.NEXT_DIST_DIR || '.next'; // must match the value used for the build
+const standalone = path.join(root, dist, 'standalone');
 if (!existsSync(path.join(standalone, 'server.js'))) {
   console.error('No standalone build found. Run `npm run build` first.');
   process.exit(1);
 }
 // The standalone folder deliberately omits static assets and public/ (a CDN normally serves them): copy them next to server.js.
-cpSync(path.join(root, '.next', 'static'), path.join(standalone, '.next', 'static'), { recursive: true });
+cpSync(path.join(root, dist, 'static'), path.join(standalone, dist, 'static'), { recursive: true });
 if (existsSync(path.join(root, 'public'))) cpSync(path.join(root, 'public'), path.join(standalone, 'public'), { recursive: true });
 
 const child = spawn(process.execPath, ['server.js'], {

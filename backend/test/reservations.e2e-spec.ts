@@ -133,7 +133,7 @@ describe('Reservations API', () => {
   });
 
   it('every reservation change is audited', async () => {
-    const logs = await t.conn.db!.collection('audit_logs').distinct('action', { propertyId: { $exists: true } });
+    const logs = (await t.db.selectFrom('auditLogs').select('action').distinct().where('propertyId', 'is not', null).execute()).map((r) => r.action);
     expect(logs).toEqual(
       expect.arrayContaining(['reservation.create', 'reservation.cancel', 'reservation.modify_dates', 'reservation.check_in', 'reservation.check_out', 'reservation.no_show']),
     );

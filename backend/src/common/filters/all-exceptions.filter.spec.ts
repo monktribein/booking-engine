@@ -19,7 +19,7 @@ describe('AllExceptionsFilter', () => {
   });
 
   it('never leaks internal error messages', () => {
-    const r = f.toBody(new Error('E11000 connection string mongodb://user:pass@host'));
+    const r = f.toBody(new Error('connection failed postgres://user:pass@db.example.supabase.co:5432/postgres'));
     expect(r).toEqual({ status: 500, body: { success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } } });
   });
 });

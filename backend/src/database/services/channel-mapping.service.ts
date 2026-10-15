@@ -1,24 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import type { ClientSession } from 'mongodb';
-import { Connection, Types } from 'mongoose';
-import { COLLECTION } from '../constants';
+import { sql } from 'kysely';
 import { percentOf } from '../common/money';
-import { isDuplicateKeyError } from '../common/schema-helpers';
-import {
-  ChannelCode,
-  ChannelConnectionStatus,
-  ChannelListingStatus,
-  INTERNAL_CHANNELS,
-  MappingStatus,
-  MarkupType,
-  SyncJobType,
-} from '../enums';
+import { redactSecrets } from '../common/redact';
+import type { ChannelRateMapping, ChannelRoomMapping } from '../db-types';
+import { ChannelCode, ChannelConnectionStatus, INTERNAL_CHANNELS, MappingStatus, MarkupType, SyncJobType } from '../enums';
 import { DomainValidationError, DuplicateError, NotFoundError } from '../errors';
-import { Models, getModels } from '../models';
-import type { ChannelRateMapping, ChannelRoomMapping } from '../schemas/channel.schema';
+import { Db, InjectDb, isUniqueViolation, j } from '../kysely';
 
-type Id = Types.ObjectId;
+type Id = string;
 
 export interface OutboundTarget {
   mappingId: Id;
@@ -40,11 +29,7 @@ export const SYNC_FLAG_FOR: Record<SyncJobType, keyof OutboundTarget | null> = {
 
 @Injectable()
 export class ChannelMappingService {
-  private readonly m: Models;
-
-  constructor(@InjectConnection() connection: Connection) {
-    this.m = getModels(connection);
-  }
+  constructor(@InjectDb() private readonly db: Db) {}
 
   // ------------------------------------------------------------ writes
 
@@ -59,20 +44,28 @@ export class ChannelMappingService {
     if (INTERNAL_CHANNELS.has(input.channel)) {
       throw new DomainValidationError(`${input.channel} reads master inventory directly and has no external listings`);
     }
-    try {
-      return await this.m.ChannelListing.findOneAndUpdate(
-        { channel: input.channel, externalListingId: input.externalListingId, propertyId: input.propertyId },
-        {
-          $set: { name: input.name, metadata: input.metadata ?? {}, channelConnectionId: input.channelConnectionId ?? null },
-          $setOnInsert: { status: ChannelListingStatus.ACTIVE },
-        },
-        { upsert: true, new: true, runValidators: true },
-      ).lean();
-    } catch (err) {
-      // The unique {channel, externalListingId} index fired: another property already owns this listing.
-      if (isDuplicateKeyError(err)) throw new DuplicateError('Channel listing (owned by another property)', err.keyValue);
-      throw err;
-    }
+    // The unique (channel, external_listing_id) key means a listing belongs to exactly one property. The WHERE on the
+    // conflict branch refuses to touch a listing that another property already owns (no row comes back).
+    const row = await this.db
+      .insertInto('channelListings')
+      .values({
+        propertyId: input.propertyId,
+        channel: input.channel,
+        externalListingId: input.externalListingId,
+        name: input.name,
+        channelConnectionId: input.channelConnectionId ?? null,
+        metadata: j(redactSecrets(input.metadata ?? {})),
+      })
+      .onConflict((oc) =>
+        oc
+          .columns(['channel', 'externalListingId'])
+          .doUpdateSet((eb) => ({ name: eb.ref('excluded.name'), metadata: eb.ref('excluded.metadata'), channelConnectionId: eb.ref('excluded.channelConnectionId') }))
+          .where('channelListings.propertyId', '=', input.propertyId),
+      )
+      .returningAll()
+      .executeTakeFirst();
+    if (!row) throw new DuplicateError('Channel listing (owned by another property)', {});
+    return row;
   }
 
   /** Map a channel listing (optionally one room inside it) to a Tirvona room type. */
@@ -86,27 +79,28 @@ export class ChannelMappingService {
     syncRestrictions?: boolean;
   }) {
     const [listing, roomType] = await Promise.all([
-      this.m.ChannelListing.findOne({ _id: input.channelListingId, propertyId: input.propertyId }).lean(),
-      this.m.RoomType.findOne({ _id: input.roomTypeId, propertyId: input.propertyId }).lean(),
+      this.db.selectFrom('channelListings').selectAll().where('id', '=', input.channelListingId).where('propertyId', '=', input.propertyId).executeTakeFirst(),
+      this.db.selectFrom('roomTypes').select('id').where('id', '=', input.roomTypeId).where('propertyId', '=', input.propertyId).executeTakeFirst(),
     ]);
     if (!listing) throw new NotFoundError('ChannelListing', input.channelListingId);
     if (!roomType) throw new NotFoundError('RoomType', input.roomTypeId);
     try {
-      const [mapping] = await this.m.ChannelRoomMapping.create([
-        {
+      return await this.db
+        .insertInto('channelRoomMappings')
+        .values({
           propertyId: input.propertyId,
           channel: listing.channel,
-          channelListingId: listing._id,
+          channelListingId: listing.id,
           externalRoomId: input.externalRoomId ?? null,
-          roomTypeId: roomType._id,
+          roomTypeId: roomType.id,
           syncAvailability: input.syncAvailability ?? true,
           syncRates: input.syncRates ?? true,
           syncRestrictions: input.syncRestrictions ?? true,
-        },
-      ]);
-      return mapping.toObject();
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
     } catch (err) {
-      if (isDuplicateKeyError(err)) throw new DuplicateError('Channel room mapping', err.keyValue);
+      if (isUniqueViolation(err)) throw new DuplicateError('Channel room mapping', {});
       throw err;
     }
   }
@@ -120,29 +114,35 @@ export class ChannelMappingService {
     markupValue?: number;
   }) {
     const [mapping, ratePlan] = await Promise.all([
-      this.m.ChannelRoomMapping.findOne({ _id: input.channelRoomMappingId, propertyId: input.propertyId }).lean(),
-      this.m.RatePlan.findOne({ _id: input.ratePlanId, propertyId: input.propertyId }).lean(),
+      this.db.selectFrom('channelRoomMappings').selectAll().where('id', '=', input.channelRoomMappingId).where('propertyId', '=', input.propertyId).executeTakeFirst(),
+      this.db.selectFrom('ratePlans').select(['id', 'roomTypeId']).where('id', '=', input.ratePlanId).where('propertyId', '=', input.propertyId).executeTakeFirst(),
     ]);
     if (!mapping) throw new NotFoundError('ChannelRoomMapping', input.channelRoomMappingId);
     if (!ratePlan) throw new NotFoundError('RatePlan', input.ratePlanId);
-    if (!ratePlan.roomTypeId.equals(mapping.roomTypeId)) {
+    if (ratePlan.roomTypeId !== mapping.roomTypeId) {
       throw new DomainValidationError('Rate plan belongs to a different room type than the room mapping');
     }
+    const markupType = input.markupType ?? MarkupType.NONE;
+    const markupValue = input.markupValue ?? 0;
+    if (markupType === MarkupType.NONE && markupValue !== 0) throw new DomainValidationError('markupValue must be 0 when markupType is NONE');
+    if (markupType === MarkupType.PERCENTAGE && (markupValue < -90 || markupValue > 500)) throw new DomainValidationError('Percentage markup must be between -90 and 500');
+    if (markupType === MarkupType.FIXED && !Number.isInteger(markupValue)) throw new DomainValidationError('Fixed markup must be an integer in minor units');
     try {
-      const [doc] = await this.m.ChannelRateMapping.create([
-        {
+      return await this.db
+        .insertInto('channelRateMappings')
+        .values({
           propertyId: input.propertyId,
           channel: mapping.channel,
-          channelRoomMappingId: mapping._id,
+          channelRoomMappingId: mapping.id,
           externalRatePlanId: input.externalRatePlanId,
-          ratePlanId: ratePlan._id,
-          markupType: input.markupType ?? MarkupType.NONE,
-          markupValue: input.markupValue ?? 0,
-        },
-      ]);
-      return doc.toObject();
+          ratePlanId: ratePlan.id,
+          markupType,
+          markupValue,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
     } catch (err) {
-      if (isDuplicateKeyError(err)) throw new DuplicateError('Channel rate mapping', err.keyValue);
+      if (isUniqueViolation(err)) throw new DuplicateError('Channel rate mapping', {});
       throw err;
     }
   }
@@ -151,55 +151,43 @@ export class ChannelMappingService {
 
   /** Resolve an inbound booking's listing/room to our property and room type. */
   async resolveInboundRoom(channel: ChannelCode, externalListingId: string, externalRoomId: string | null = null) {
-    const listing = await this.m.ChannelListing.findOne({ channel, externalListingId }).lean();
+    const listing = await this.db.selectFrom('channelListings').selectAll().where('channel', '=', channel).where('externalListingId', '=', externalListingId).executeTakeFirst();
     if (!listing) return null;
-    const mapping = await this.m.ChannelRoomMapping.findOne({
-      channelListingId: listing._id,
-      externalRoomId,
-      status: { $ne: MappingStatus.ARCHIVED },
-    }).lean();
+    let q = this.db.selectFrom('channelRoomMappings').selectAll().where('channelListingId', '=', listing.id).where('status', '<>', MappingStatus.ARCHIVED);
+    q = externalRoomId === null ? q.where('externalRoomId', 'is', null) : q.where('externalRoomId', '=', externalRoomId);
+    const mapping = (await q.executeTakeFirst()) ?? null;
     return { listing, mapping, propertyId: listing.propertyId, roomTypeId: mapping?.roomTypeId ?? null };
   }
 
   async resolveInboundRatePlan(channelRoomMappingId: Id, externalRatePlanId: string): Promise<ChannelRateMapping | null> {
-    return this.m.ChannelRateMapping.findOne({
-      channelRoomMappingId,
-      externalRatePlanId,
-      status: { $ne: MappingStatus.ARCHIVED },
-    }).lean();
+    return (
+      (await this.db
+        .selectFrom('channelRateMappings')
+        .selectAll()
+        .where('channelRoomMappingId', '=', channelRoomMappingId)
+        .where('externalRatePlanId', '=', externalRatePlanId)
+        .where('status', '<>', MappingStatus.ARCHIVED)
+        .executeTakeFirst()) ?? null
+    );
   }
 
   // ------------------------------------------------------------ outbound (Tirvona → channel)
 
   /**
-   * Channel listings that consume a room type and should receive updates.
-   * Only ACTIVE mappings on CONNECTED external channels qualify. After a
-   * reconnect, a full resync job is queued (see SyncJobService.enqueueFullResync).
+   * Channel listings that consume a room type and should receive updates. Only ACTIVE mappings on CONNECTED external
+   * channels qualify. After a reconnect, a full resync job is queued (see SyncJobService.enqueueFullResync).
    */
-  async getOutboundTargets(propertyId: Id, roomTypeId: Id, session?: ClientSession | null): Promise<OutboundTarget[]> {
-    const [mappings, connections] = await Promise.all([
-      this.m.ChannelRoomMapping.find(
-        { propertyId, roomTypeId, status: MappingStatus.ACTIVE },
-        { channel: 1, channelListingId: 1, externalRoomId: 1, syncAvailability: 1, syncRates: 1, syncRestrictions: 1 },
-      )
-        .session(session ?? null)
-        .lean(),
-      this.m.ChannelConnection.find({ propertyId, status: ChannelConnectionStatus.CONNECTED }, { channel: 1 })
-        .session(session ?? null)
-        .lean(),
-    ]);
-    const connected = new Set(connections.map((c) => c.channel));
-    return mappings
-      .filter((mp) => connected.has(mp.channel) && !INTERNAL_CHANNELS.has(mp.channel))
-      .map((mp) => ({
-        mappingId: mp._id,
-        channel: mp.channel,
-        channelListingId: mp.channelListingId,
-        externalRoomId: mp.externalRoomId,
-        syncAvailability: mp.syncAvailability,
-        syncRates: mp.syncRates,
-        syncRestrictions: mp.syncRestrictions,
-      }));
+  async getOutboundTargets(propertyId: Id, roomTypeId: Id, q: Db = this.db): Promise<OutboundTarget[]> {
+    const rows = await q
+      .selectFrom('channelRoomMappings as m')
+      .innerJoin('channelConnections as c', (join) => join.onRef('c.propertyId', '=', 'm.propertyId').onRef('c.channel', '=', 'm.channel'))
+      .select(['m.id as mappingId', 'm.channel', 'm.channelListingId', 'm.externalRoomId', 'm.syncAvailability', 'm.syncRates', 'm.syncRestrictions'])
+      .where('m.propertyId', '=', propertyId)
+      .where('m.roomTypeId', '=', roomTypeId)
+      .where('m.status', '=', MappingStatus.ACTIVE)
+      .where('c.status', '=', ChannelConnectionStatus.CONNECTED)
+      .execute();
+    return rows.filter((r) => !INTERNAL_CHANNELS.has(r.channel as ChannelCode)).map((r) => ({ ...r, channel: r.channel as ChannelCode }));
   }
 
   /** Price to push to a channel for a mapped rate plan. */
@@ -218,83 +206,48 @@ export class ChannelMappingService {
 
   /** Every listing of a property with its room mappings, room type names and rate mappings. */
   async listListingsWithMappings(propertyId: Id) {
-    return this.m.ChannelListing.aggregate([
-      { $match: { propertyId } },
-      {
-        $lookup: {
-          from: COLLECTION.channelRoomMappings,
-          localField: '_id',
-          foreignField: 'channelListingId',
-          as: 'roomMappings',
-          pipeline: [
-            { $lookup: { from: COLLECTION.roomTypes, localField: 'roomTypeId', foreignField: '_id', as: 'roomType' } },
-            { $unwind: '$roomType' },
-            {
-              $lookup: {
-                from: COLLECTION.channelRateMappings,
-                localField: '_id',
-                foreignField: 'channelRoomMappingId',
-                as: 'rateMappings',
-                pipeline: [{ $project: { externalRatePlanId: 1, ratePlanId: 1, markupType: 1, markupValue: 1, status: 1 } }],
-              },
-            },
-            {
-              $project: {
-                externalRoomId: 1,
-                status: 1,
-                syncAvailability: 1,
-                syncRates: 1,
-                syncRestrictions: 1,
-                roomTypeId: 1,
-                roomTypeName: '$roomType.name',
-                rateMappings: 1,
-              },
-            },
-          ],
-        },
-      },
-      { $project: { channel: 1, externalListingId: 1, name: 1, status: 1, lastSyncedAt: 1, roomMappings: 1 } },
-      { $sort: { channel: 1, name: 1 } },
-    ]);
+    const res = await sql<Record<string, unknown>>`
+      select l.id, l.channel, l.external_listing_id, l.name, l.status, l.last_synced_at,
+        coalesce((
+          select json_agg(json_build_object(
+            'id', m.id, 'externalRoomId', m.external_room_id, 'status', m.status,
+            'syncAvailability', m.sync_availability, 'syncRates', m.sync_rates, 'syncRestrictions', m.sync_restrictions,
+            'roomTypeId', m.room_type_id, 'roomTypeName', rt.name,
+            'rateMappings', coalesce((
+              select json_agg(json_build_object('externalRatePlanId', rm.external_rate_plan_id, 'ratePlanId', rm.rate_plan_id,
+                                                'markupType', rm.markup_type, 'markupValue', rm.markup_value, 'status', rm.status))
+              from channel_rate_mappings rm where rm.channel_room_mapping_id = m.id), '[]'::json)
+          ) order by rt.name)
+          from channel_room_mappings m join room_types rt on rt.id = m.room_type_id
+          where m.channel_listing_id = l.id), '[]'::json) as room_mappings
+      from channel_listings l
+      where l.property_id = ${propertyId}::uuid
+      order by l.channel, l.name`.execute(this.db);
+    return res.rows;
   }
 
   /** Listings that exist on a channel but are not yet connected to any room type. They sell nothing. */
   async findUnmappedListings(propertyId: Id) {
-    return this.m.ChannelListing.aggregate([
-      { $match: { propertyId, status: ChannelListingStatus.ACTIVE } },
-      {
-        $lookup: {
-          from: COLLECTION.channelRoomMappings,
-          localField: '_id',
-          foreignField: 'channelListingId',
-          as: 'm',
-          pipeline: [{ $match: { status: { $ne: MappingStatus.ARCHIVED } } }, { $limit: 1 }],
-        },
-      },
-      { $match: { m: { $size: 0 } } },
-      { $project: { m: 0, metadata: 0 } },
-    ]);
+    return this.db
+      .selectFrom('channelListings as l')
+      .select(['l.id', 'l.propertyId', 'l.channelConnectionId', 'l.channel', 'l.externalListingId', 'l.name', 'l.status', 'l.lastSyncedAt', 'l.createdAt', 'l.updatedAt'])
+      .where('l.propertyId', '=', propertyId)
+      .where('l.status', '=', 'ACTIVE')
+      .where((eb) => eb.not(eb.exists(eb.selectFrom('channelRoomMappings as m').select('m.id').whereRef('m.channelListingId', '=', 'l.id').where('m.status', '<>', MappingStatus.ARCHIVED))))
+      .execute();
   }
 
   /** Room types not distributed on any external channel. */
   async findUndistributedRoomTypes(propertyId: Id) {
-    return this.m.RoomType.aggregate([
-      { $match: { propertyId } },
-      {
-        $lookup: {
-          from: COLLECTION.channelRoomMappings,
-          localField: '_id',
-          foreignField: 'roomTypeId',
-          as: 'm',
-          pipeline: [{ $match: { propertyId, status: MappingStatus.ACTIVE } }, { $limit: 1 }],
-        },
-      },
-      { $match: { m: { $size: 0 } } },
-      { $project: { name: 1, slug: 1 } },
-    ]);
+    return this.db
+      .selectFrom('roomTypes as rt')
+      .select(['rt.id', 'rt.name', 'rt.slug'])
+      .where('rt.propertyId', '=', propertyId)
+      .where((eb) => eb.not(eb.exists(eb.selectFrom('channelRoomMappings as m').select('m.id').whereRef('m.roomTypeId', '=', 'rt.id').where('m.propertyId', '=', propertyId).where('m.status', '=', MappingStatus.ACTIVE))))
+      .execute();
   }
 
   async mappingsForRoomType(propertyId: Id, roomTypeId: Id): Promise<ChannelRoomMapping[]> {
-    return this.m.ChannelRoomMapping.find({ propertyId, roomTypeId }).lean();
+    return this.db.selectFrom('channelRoomMappings').selectAll().where('propertyId', '=', propertyId).where('roomTypeId', '=', roomTypeId).execute();
   }
 }

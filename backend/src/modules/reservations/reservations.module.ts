@@ -1,12 +1,11 @@
 import { Body, Controller, Get, Headers, HttpCode, Module, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, PropertyAccessContext } from '../../common/auth/auth-user';
 import { CurrentUser, PropertyCtx } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import { DomainValidationError } from '../../database/errors';
 import {
   CancelReservationDto,
@@ -33,7 +32,7 @@ export class ReservationsController {
   @ApiOperation({
     summary: 'Create a reservation (staff)',
     description:
-      'Validates dates and room types, then in ONE MongoDB transaction atomically decrements inventory for every night (all-or-nothing), creates the reservation and queues channel sync. With 1 room left and two simultaneous requests, one succeeds and the other gets 409 ROOM_NOT_AVAILABLE.',
+      'Validates dates and room types, then in ONE database transaction atomically decrements inventory for every night (all-or-nothing), creates the reservation and queues channel sync. With 1 room left and two simultaneous requests, one succeeds and the other gets 409 ROOM_NOT_AVAILABLE.',
   })
   @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Retries with the same key return the original reservation' })
   @ApiEnvelope(ReservationDto, { status: 201 })
@@ -65,7 +64,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Get a reservation' })
   @ApiEnvelope(ReservationDto)
   @ApiStandardErrors({ notFound: true })
-  get(@Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  get(@Param('id', ParseUuidPipe) id: string) {
     return this.reservations.get(id);
   }
 
@@ -74,7 +73,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Update guest details/occupancy, or change dates (re-reserves inventory atomically and re-prices new nights)' })
   @ApiEnvelope(ReservationDto)
   @ApiStandardErrors({ notFound: true, conflict: 'ROOM_NOT_AVAILABLE / INVALID_STATE_TRANSITION' })
-  update(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: UpdateReservationDto) {
+  update(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateReservationDto) {
     return this.reservations.update(user, ctx, id, dto);
   }
 
@@ -84,7 +83,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Cancel: releases every night, queues refunds per the frozen cancellation policy, and syncs channels. Idempotent.' })
   @ApiEnvelope(CancelResultDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION' })
-  cancel(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: CancelReservationDto) {
+  cancel(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string, @Body() dto: CancelReservationDto) {
     return this.reservations.cancel(user, ctx, id, dto);
   }
 
@@ -94,7 +93,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Check in (every line needs an AVAILABLE room; rooms become OCCUPIED)' })
   @ApiEnvelope(ReservationDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION / ROOM_NOT_READY / ROOM_ASSIGNMENT_CONFLICT' })
-  checkIn(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: CheckInDto) {
+  checkIn(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string, @Body() dto: CheckInDto) {
     return this.reservations.checkIn(user, ctx, id, dto);
   }
 
@@ -104,7 +103,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Check out (rooms go to CLEANING; unused nights of an early departure are released)' })
   @ApiEnvelope(CheckOutResultDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION' })
-  checkOut(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  checkOut(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string) {
     return this.reservations.checkOut(user, ctx, id);
   }
 
@@ -114,7 +113,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Mark no-show (from the arrival date); remaining nights are released for resale' })
   @ApiEnvelope(ReservationDto)
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION' })
-  noShow(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  noShow(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string) {
     return this.reservations.noShow(user, ctx, id);
   }
 
@@ -124,7 +123,7 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Assign a physical room to one reservation line (conflict-safe)' })
   @ApiEnvelope(ReservationDto)
   @ApiStandardErrors({ notFound: true, conflict: 'ROOM_ASSIGNMENT_CONFLICT' })
-  assign(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: RoomAssignmentDto) {
+  assign(@CurrentUser() user: AuthUser, @PropertyCtx() ctx: PropertyAccessContext, @Param('id', ParseUuidPipe) id: string, @Body() dto: RoomAssignmentDto) {
     return this.reservations.assignRoom(user, ctx, id, dto.reservationRoomId, dto.roomId);
   }
 }

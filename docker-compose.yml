@@ -1,20 +1,22 @@
-# Local stack: API + worker + Redis + MongoDB (single-node replica set; transactions need one).
-#   cp .env.example .env   (fill in secrets)
+# Stack: web + API + worker + Redis (+ an optional local PostgreSQL).
+#   cp backend/.env.example backend/.env   (fill in secrets and DATABASE_URL)
 #   docker compose up --build
-#   docker compose run --rm api node dist/scripts/setup-db.js     # indexes + validators
 #
-# Production: point MONGODB_URI at MongoDB Atlas and drop the `mongo` service
-# (docker compose up api worker redis), or run the image on your orchestrator.
+# Database: PostgreSQL is hosted (Supabase). Put its connection string in backend/.env as DATABASE_URL. The one-shot
+# `migrate` service applies the SQL migrations before the API and worker start.
+#
+# Fully local, no Supabase: in backend/.env set DATABASE_SSL=disable and DATABASE_URL to the "postgres" service below
+# (user tirvona, database tirvona, host postgres, port 5432; the password is POSTGRES_PASSWORD), then run
+#   docker compose --profile local-db up --build
 x-app: &app
   build: ./backend
   env_file: ./backend/.env
   environment:
-    MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0&directConnection=true}
     REDIS_URL: redis://redis:6379
     QUEUE_DRIVER: bullmq
   depends_on:
     redis: { condition: service_healthy }
-    mongo: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
   restart: unless-stopped
 
 services:
@@ -40,7 +42,6 @@ services:
     <<: *app
     ports: ["3000:3000"]
     environment:
-      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0&directConnection=true}
       REDIS_URL: redis://redis:6379
       QUEUE_DRIVER: bullmq
       WORKERS_ENABLED: "false"      # API instances only produce jobs
@@ -60,11 +61,32 @@ services:
       interval: 5s
       retries: 20
 
-  mongo:
-    image: mongo:8.0
-    command: ["--replSet", "rs0", "--bind_ip_all"]
-    ports: ["27017:27017"]
-    volumes: ["mongo-data:/data/db"]
+  # One-shot: applies backend/src/database/migrations to DATABASE_URL (idempotent, serialised by an advisory lock).
+  # On Supabase point DATABASE_URL at the direct or session-pooler connection, not the transaction pooler (port 6543).
+  migrate:
+    build: ./backend
+    env_file: ./backend/.env
+    command: ["node", "dist/scripts/db-migrate.js"]
+    depends_on:
+      postgres: { condition: service_healthy, required: false }
+    restart: "no"
+
+  # Optional local database (profile "local-db"). Use Supabase in any shared or production environment.
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["local-db"]
+    environment:
+      POSTGRES_USER: tirvona
+      POSTGRES_PASSWORD: tirvona-local   # secret-scan:allow (local-only container)
+      POSTGRES_DB: tirvona
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["pg-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tirvona -d tirvona"]
+      interval: 5s
+      retries: 20
+
+volumes: ["mongo-data:/data/db"]
     healthcheck:
       test: >
         mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
@@ -72,5 +94,5 @@ services:
       retries: 30
 
 volumes:
-  mongo-data:
+  pg-data:
   redis-data:

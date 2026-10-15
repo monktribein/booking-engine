@@ -5,8 +5,7 @@ import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, ReqMeta } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
-import type { Types } from 'mongoose';
+import { ParseUuidPipe } from '../../common/utils';
 import { AddStaffDto, PropertyStaffDto, UpdateMeDto, UserDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
@@ -36,7 +35,7 @@ export class UsersController {
   @ApiOperation({ summary: 'List staff with access to a property' })
   @ApiEnvelope(PropertyStaffDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  list(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId) {
+  list(@Param('propertyId', ParseUuidPipe) propertyId: string) {
     return this.users.listStaff(propertyId);
   }
 
@@ -48,7 +47,7 @@ export class UsersController {
   add(
     @CurrentUser() user: AuthUser,
     @ReqMeta() meta: RequestMeta,
-    @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId,
+    @Param('propertyId', ParseUuidPipe) propertyId: string,
     @Body() dto: AddStaffDto,
   ) {
     return this.users.addStaff(user, meta, propertyId, dto);
@@ -62,8 +61,8 @@ export class UsersController {
   remove(
     @CurrentUser() user: AuthUser,
     @ReqMeta() meta: RequestMeta,
-    @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId,
-    @Param('userId', ParseObjectIdPipe) userId: Types.ObjectId,
+    @Param('propertyId', ParseUuidPipe) propertyId: string,
+    @Param('userId', ParseUuidPipe) userId: string,
   ) {
     return this.users.removeStaff(user, meta, propertyId, userId);
   }

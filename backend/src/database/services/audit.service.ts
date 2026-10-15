@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import type { ClientSession } from 'mongodb';
-import { Connection, Types } from 'mongoose';
-import { Models, getModels } from '../models';
+import { redactSecrets } from '../common/redact';
+import { Db, InjectDb, j } from '../kysely';
+
+type Id = string;
 
 export interface AuditEntry {
-  organizationId?: Types.ObjectId | null;
-  propertyId?: Types.ObjectId | null;
-  userId?: Types.ObjectId | null;
+  organizationId?: Id | null;
+  propertyId?: Id | null;
+  userId?: Id | null;
   action: string;
   entityType: string;
-  entityId: Types.ObjectId;
+  entityId: Id;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
   metadata?: Record<string, unknown>;
@@ -18,14 +18,30 @@ export interface AuditEntry {
 
 @Injectable()
 export class AuditService {
-  private readonly m: Models;
+  constructor(@InjectDb() private readonly db: Db) {}
 
-  constructor(@InjectConnection() connection: Connection) {
-    this.m = getModels(connection);
-  }
-
-  /** Pass the session to make the audit row commit or roll back with the change it describes. */
-  async record(session: ClientSession | null, entry: AuditEntry): Promise<void> {
-    await this.m.AuditLog.create([{ ...entry, metadata: entry.metadata ?? {} }], { session });
+  /**
+   * Pass the transaction to make the audit row commit or roll back with the change it describes. Values pass through
+   * redactSecrets (tokens, passwords, card numbers never reach audit_logs). The table is append-only (a trigger rejects
+   * UPDATE and DELETE).
+   */
+  async record(q: Db | null, entry: AuditEntry): Promise<void> {
+    await (q ?? this.db)
+      .insertInto('auditLogs')
+      .values({
+        organizationId: entry.organizationId ?? null,
+        propertyId: entry.propertyId ?? null,
+        userId: entry.userId ?? null,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        before: entry.before ? j(redactSecrets(plain(entry.before))) : null,
+        after: entry.after ? j(redactSecrets(plain(entry.after))) : null,
+        metadata: j(redactSecrets(plain(entry.metadata ?? {}))),
+      })
+      .execute();
   }
 }
+
+/** JSON round-trip: Dates become ISO strings and undefined keys disappear, exactly what jsonb would store. */
+const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));

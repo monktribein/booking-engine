@@ -1,5 +1,4 @@
-import type { Connection } from 'mongoose';
-import { registerModels } from '../models';
+import type { Db } from '../kysely';
 import { AuditService } from './audit.service';
 import { AvailabilityService, CalendarService } from './availability.service';
 import { ChannelMappingService } from './channel-mapping.service';
@@ -34,14 +33,13 @@ export const DATABASE_SERVICES = [
 ];
 
 /** Manual wiring for scripts, workers and tests that run outside Nest's DI container. */
-export function createServices(connection: Connection) {
-  registerModels(connection);
-  const audit = new AuditService(connection);
-  const channels = new ChannelMappingService(connection);
-  const syncJobs = new SyncJobService(connection, channels);
-  const inventory = new InventoryService(connection, syncJobs, audit);
-  const clientEvents = new ClientEventService(connection);
-  const reservations = new ReservationService(connection, inventory, syncJobs, audit, clientEvents);
+export function createServices(db: Db) {
+  const audit = new AuditService(db);
+  const channels = new ChannelMappingService(db);
+  const syncJobs = new SyncJobService(db, channels);
+  const inventory = new InventoryService(db, syncJobs, audit);
+  const clientEvents = new ClientEventService(db);
+  const reservations = new ReservationService(db, inventory, syncJobs, audit, clientEvents);
   return {
     audit,
     clientEvents,
@@ -49,9 +47,9 @@ export function createServices(connection: Connection) {
     syncJobs,
     inventory,
     reservations,
-    availability: new AvailabilityService(connection),
-    calendar: new CalendarService(connection),
-    webhooks: new WebhookService(connection, channels, reservations),
+    availability: new AvailabilityService(db),
+    calendar: new CalendarService(db),
+    webhooks: new WebhookService(db, channels, reservations),
   };
 }
 

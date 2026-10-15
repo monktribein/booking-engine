@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, HttpException, Injectable, SetMetadata, createParamDecorator } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { ThrottlerStorage } from '@nestjs/throttler';
+import { InjectThrottlerStorage, ThrottlerStorage } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { AppConfig } from '../../config/configuration';
 import type { ApiScope } from '../../database/enums';
@@ -28,7 +28,7 @@ export class ApiKeyGuard implements CanActivate {
   constructor(
     private readonly keys: ApiKeyService,
     private readonly reflector: Reflector,
-    private readonly storage: ThrottlerStorage,
+    @InjectThrottlerStorage() private readonly storage: ThrottlerStorage,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 

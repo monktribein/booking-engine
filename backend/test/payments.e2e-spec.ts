@@ -63,8 +63,8 @@ describe('Payments', () => {
     const res = await sendWebhook(w, { 'X-Razorpay-Signature': 'f'.repeat(64) });
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('INVALID_SIGNATURE');
-    expect(await t.conn.db!.collection('webhook_events').findOne({ externalEventId: 'evt_evil' })).toBeNull(); // cannot squat the id
-    const stored = await t.conn.db!.collection('webhook_events').findOne({ channel: 'RAZORPAY', signatureValid: false });
+    expect(await t.db.selectFrom('webhookEvents').selectAll().where('externalEventId', '=', 'evt_evil').executeTakeFirst()).toBeUndefined(); // cannot squat the id
+    const stored = await t.db.selectFrom('webhookEvents').selectAll().where('channel', '=', 'RAZORPAY').where('signatureValid', '=', false).executeTakeFirst();
     expect(stored).toMatchObject({ status: 'IGNORED', signatureValid: false });
   });
 
@@ -74,7 +74,7 @@ describe('Payments', () => {
     await sendWebhook(razorpayWebhook('payment.failed', { id: 'pay_FAILED01', order_id: order.checkout.orderId, amount: r.total, currency: 'INR', error_description: 'Card declined' })).expect(200);
     await t.drain();
     expect((await t.http().get(`/payments/${order.payment._id}`).set(bearer(owner.token))).body.data.status).toBe('FAILED');
-    expect(await t.conn.db!.collection('notifications').countDocuments({ type: 'PAYMENT_FAILED', recipient: r.guest.email })).toBeGreaterThanOrEqual(1);
+    expect(Number((await t.db.selectFrom('notifications').select((eb) => eb.fn.countAll<string>().as('n')).where('type', '=', 'PAYMENT_FAILED').where('recipient', '=', r.guest.email).executeTakeFirstOrThrow()).n)).toBeGreaterThanOrEqual(1);
   });
 
   it('partial then full refunds through the gateway, never beyond what was paid', async () => {
@@ -114,7 +114,7 @@ describe('Payments', () => {
   });
 
   it('payment responses never contain secrets', async () => {
-    const all = await t.conn.db!.collection('payments').find().toArray();
+    const all = await t.db.selectFrom('payments').selectAll().execute();
     expect(JSON.stringify(all)).not.toMatch(/rzp_test_secret_value|rzp_test_webhook_secret/);
   });
 });

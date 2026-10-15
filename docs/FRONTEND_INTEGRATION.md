@@ -61,6 +61,7 @@ All endpoints below were exercised by `frontend/tests/live/*` against the seeded
 | Dashboard | `GET /properties/:id/reports/occupancy`, `GET /reservations` (x2), `GET /properties/:id/reports/revenue`, `GET /properties/:id/channels` | pass, composed |
 | Reports | `GET /properties/:id/reports/revenue`, `.../occupancy` | pass |
 | Properties / settings | `GET /properties`, `GET/PATCH /properties/:id`, `GET/POST/DELETE /properties/:id/users` | pass (staff add/remove not exercised live) |
+| Settings → Developers (owners only): API keys and webhooks | `GET/POST /api-keys`, `DELETE /api-keys/:id`, `GET/POST /webhook-endpoints`, `PATCH/DELETE /webhook-endpoints/:id`, `POST /webhook-endpoints/:id/{rotate-secret,test}`, `GET /webhook-endpoints/:id/deliveries`, `POST …/deliveries/:id/redeliver` | unit (9 component tests), real browser (Playwright `e2e/developer.spec.ts`: create key → call `/v1` → revoke; endpoint → test event → signature verified → delete) |
 | Room types / rooms | `GET/POST /properties/:id/room-types`, `PATCH/DELETE /room-types/:id`, `GET/POST /room-types/:id/rooms`, `POST /rooms/:id/status` | pass |
 | Inventory | `GET /properties/:id/inventory`, `PUT /properties/:id/restrictions` | pass |
 | Calendar | inventory + rooms + `POST /inventory/block`, `DELETE /inventory/block/:id`, `GET /reservations/:id` | pass |
@@ -73,6 +74,8 @@ All endpoints below were exercised by `frontend/tests/live/*` against the seeded
 | Public property + search | `GET /public/properties/:slug`, `GET .../availability` | pass (server-rendered, 404 for unknown slug) |
 | Checkout | `GET .../availability` (quote), `POST /public/reservations` (Idempotency-Key), Razorpay Checkout, `POST /payments/verify` | pass up to Checkout; see section 6 |
 | Confirmation / lookup | `GET /public/reservations/:code?email=` | pass |
+| Guest search `/stays` (destination, dates, guests, price, amenities, sort, pages; the URL holds the search) | `GET /public/properties` | unit (8 component tests), backend e2e (12), real browser (`e2e/search.spec.ts`) |
+| Booking lookup + "saved on this device" (opt-in, localStorage, per booking) | `GET /public/reservations/:code?email=` | unit (4), no server-side guest accounts or history exist |
 
 ### Backend gaps (no endpoint) and how the UI copes
 
@@ -138,7 +141,7 @@ Bugs found by running things (not by reading): `/auth/me` was excluded from toke
 
 ## 8. Remaining risks and blockers
 
-1. **Your `.env` cannot connect.** `MONGODB_URI=MONGODB_URI=mongodb+srv://...@<cluster>.mongodb.net/...` has a doubled prefix and a `<cluster>` placeholder. The audit never touched your `.env` or any real database; it used `npm run sandbox` (in-memory replica set + seed).
+1. **Your `.env` was written for MongoDB.** The backend now uses PostgreSQL: set `DATABASE_URL` (Supabase connection string, see `backend/.env.example`) and run `npm run db:migrate`. The audit never touched your `.env` or any real database; it used `npm run sandbox` (throw-away local PostgreSQL + seed).
 2. Refresh token is stored in `localStorage` (the backend also sets an httpOnly cookie that the frontend does not use). XSS would expose it. Safer: use the cookie with `credentials: 'include'` and CSRF protection, a backend/frontend decision, deliberately not changed here.
 3. Real-browser coverage is limited to the flows in frontend/e2e (see docs/PRODUCTION_AUDIT.md); payment readiness is unproven (section 6).
 4. Airbnb / Booking.com / Agoda stay unavailable until partner access exists (the UI says so).

@@ -361,3 +361,9 @@ export type ApiEventType = (typeof API_EVENT_TYPES)[number];
 /** Scopes an API key can hold. */
 export const API_SCOPES = ['properties:read', 'availability:read', 'reservations:read', 'reservations:write'] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
+
+export enum PromotionType {
+  PERCENTAGE = 'PERCENTAGE',
+  /** Minor units off the whole stay. */
+  FIXED = 'FIXED',
+}

@@ -29,7 +29,7 @@ describe('Channel manager: connection, mapping and sync', () => {
     expect(list.body.data.find((c: { channel: string }) => c.channel === 'TIRVONA')).toMatchObject({ internal: true });
     expect(JSON.stringify(list.body)).not.toMatch(/mock-at-|mock-rt-|Encrypted/);
 
-    const raw = await t.conn.db!.collection('channel_connections').findOne({ channel: 'MOCK' });
+    const raw = await t.db.selectFrom('channelConnections').selectAll().where('channel', '=', 'MOCK').executeTakeFirst();
     expect(raw!.accessTokenEncrypted).toMatch(/^v1:/);
     expect(raw!.accessTokenEncrypted).not.toContain('mock-at-');
   });
@@ -102,7 +102,7 @@ describe('Channel manager: connection, mapping and sync', () => {
     const r = await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(12), day(13))).expect(201);
     await t.drain();
     expect(pushed('MOCK-HOTEL-1', 'MOCK-ROOM-DLX', day(12))).toBe(9);
-    const failedLogs = await t.conn.db!.collection('sync_logs').countDocuments({ status: 'FAILED' });
+    const failedLogs = Number((await t.db.selectFrom('syncLogs').select((eb) => eb.fn.countAll<string>().as('n')).where('status', '=', 'FAILED').executeTakeFirstOrThrow()).n);
     expect(failedLogs).toBeGreaterThanOrEqual(2);
     expect((await t.http().get(`/reservations/${r.body.data._id}`).set(bearer(owner.token))).body.data.status).toBe('CONFIRMED');
   });
@@ -112,7 +112,7 @@ describe('Channel manager: connection, mapping and sync', () => {
     const r = await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(15), day(16))).expect(201);
     await t.drain();
     expect(pushed('MOCK-HOTEL-1', 'MOCK-ROOM-DLX', day(15))).toBe(10); // stale on the channel
-    expect(await t.conn.db!.collection('sync_jobs').countDocuments({ status: 'FAILED' })).toBeGreaterThan(0);
+    expect(Number((await t.db.selectFrom('syncJobs').select((eb) => eb.fn.countAll<string>().as('n')).where('status', '=', 'FAILED').executeTakeFirstOrThrow()).n)).toBeGreaterThan(0);
     const inbox = await t.http().get('/notifications').set(bearer(owner.token)).expect(200);
     expect(inbox.body.data.items.some((n: { type: string }) => n.type === 'CHANNEL_SYNC_FAILED')).toBe(true);
     expect((await t.http().get(`/reservations/${r.body.data._id}`).set(bearer(owner.token))).body.data.status).toBe('CONFIRMED');
@@ -122,15 +122,15 @@ describe('Channel manager: connection, mapping and sync', () => {
     expect(sync.body.data.queued).toBeGreaterThan(0);
     await t.drain();
     expect(pushed('MOCK-HOTEL-1', 'MOCK-ROOM-DLX', day(15))).toBe(9);
-    const audit = await t.conn.db!.collection('audit_logs').findOne({ action: 'channel.manual_sync' });
+    const audit = await t.db.selectFrom('auditLogs').selectAll().where('action', '=', 'channel.manual_sync').executeTakeFirst();
     expect(audit).toBeTruthy();
   });
 
   it('disconnect wipes credentials and stops syncing', async () => {
     await t.http().post(`/properties/${s.propertyId}/channels/MOCK/disconnect`).set(bearer(owner.token)).expect(200);
-    const raw = await t.conn.db!.collection('channel_connections').findOne({ channel: 'MOCK' });
+    const raw = await t.db.selectFrom('channelConnections').selectAll().where('channel', '=', 'MOCK').executeTakeFirst();
     expect(raw).toMatchObject({ status: 'DISCONNECTED' });
-    expect(raw!.accessTokenEncrypted).toBeUndefined();
+    expect(raw!.accessTokenEncrypted).toBeNull();
     const before = store.pushes.length;
     await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(18), day(19))).expect(201);
     await t.drain();

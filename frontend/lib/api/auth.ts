@@ -53,6 +53,16 @@ export const authApi = {
     return apiClient<User>('/auth/me');
   },
 
+  /** Own name/phone. The e-mail and role are not editable here. */
+  updateProfile(payload: { name?: string; phone?: string }): Promise<User> {
+    return apiClient<User>('/users/me', { method: 'PATCH', body: JSON.stringify(payload) });
+  },
+
+  /** Needs the current password. The server ends every other login of this account and keeps this one. */
+  changePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+    return apiClient<{ ok: boolean }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+  },
+
   forgotPassword(email: string): Promise<{ ok: boolean }> {
     return apiClient<{ ok: boolean }>('/auth/forgot-password', {
       method: 'POST',

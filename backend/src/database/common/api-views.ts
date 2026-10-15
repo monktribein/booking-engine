@@ -1,9 +1,9 @@
-import type { Property } from '../schemas/property.schema';
-import type { Reservation } from '../schemas/reservation.schema';
+import type { Property } from '../db-types';
+import type { Reservation } from '../reservation-store';
 import { formatDateOnly } from './dates';
 
 /** The reservation as the public API and webhooks present it. Part of the versioned contract: add fields, never rename or remove them within v1. */
-export function apiReservationView(r: Reservation, property: Pick<Property, 'slug' | 'name'> & { _id?: unknown }) {
+export function apiReservationView(r: Reservation, property: Pick<Property, 'slug' | 'name'>) {
   return {
     reservationCode: r.reservationCode,
     status: r.status,

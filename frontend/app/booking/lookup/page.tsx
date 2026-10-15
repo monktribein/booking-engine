@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { bookingEngineApi } from '@/lib/api/booking-engine';
 import { ApiError } from '@/lib/api/client';
@@ -13,6 +13,8 @@ import { formatCurrency } from '@/lib/utils/currency';
 import { formatDateShort } from '@/lib/utils/dates';
 import { errorMessage } from '@/lib/utils/errors';
 import { Search, ArrowLeft } from 'lucide-react';
+import { RememberBooking } from '@/components/booking/RememberBooking';
+import { forgetAllBookings, forgetBooking, listRecentBookings, recentBookingsSnapshot, subscribeRecentBookings } from '@/lib/booking/recent';
 
 export default function BookingLookupPage() {
   const [code, setCode] = useState('');
@@ -21,22 +23,34 @@ export default function BookingLookupPage() {
   const busy = useRef(false);
   const [reservation, setReservation] = useState<PublicReservationView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [looked, setLooked] = useState<{ code: string; email: string } | null>(null);
 
-  const handleLookup = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Bookings the guest chose to keep on this device (opt-in, see lib/booking/recent.ts). The snapshot string drives re-rendering.
+  const savedSnapshot = useSyncExternalStore(subscribeRecentBookings, recentBookingsSnapshot, () => '[]');
+  const saved = React.useMemo(() => listRecentBookings(), [savedSnapshot]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const lookup = async (lookupCode: string, lookupEmail: string) => {
     if (busy.current) return;
     busy.current = true;
     setIsLoading(true);
     setError(null);
     setReservation(null);
+    setLooked(null);
     try {
-      setReservation(await bookingEngineApi.lookupReservation(code.trim().toUpperCase(), email.trim().toLowerCase()));
+      const found = await bookingEngineApi.lookupReservation(lookupCode.trim().toUpperCase(), lookupEmail.trim().toLowerCase());
+      setReservation(found);
+      setLooked({ code: found.reservationCode, email: lookupEmail.trim().toLowerCase() });
     } catch (err) {
       setError(err instanceof ApiError && err.status === 404 ? 'No booking matches this code and email.' : errorMessage(err));
     } finally {
       busy.current = false;
       setIsLoading(false);
     }
+  };
+
+  const handleLookup = (e: React.FormEvent) => {
+    e.preventDefault();
+    void lookup(code, email);
   };
 
   return (
@@ -63,6 +77,35 @@ export default function BookingLookupPage() {
             </form>
           </CardContent>
         </Card>
+
+        {saved.length > 0 && (
+          <Card className="shadow-sm border-slate-200 dark:border-slate-800">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold">Saved on this device</h2>
+                <Button variant="ghost" size="sm" onClick={() => forgetAllBookings()}>Forget all</Button>
+              </div>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {saved.map((b) => (
+                  <li key={b.code} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+                    <div>
+                      <div className="font-semibold text-slate-900 dark:text-slate-100">{b.propertyName}</div>
+                      <div className="text-slate-500">{b.code} • {formatDateShort(b.checkIn)} to {formatDateShort(b.checkOut)}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" disabled={isLoading} onClick={() => void lookup(b.code, b.email)}>View</Button>
+                      <Button size="sm" variant="ghost" aria-label={`Forget ${b.code}`} onClick={() => forgetBooking(b.code)}>Forget</Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {reservation && looked && (
+          <RememberBooking booking={{ code: looked.code, email: looked.email, propertyName: reservation.propertyName, checkIn: reservation.checkIn, checkOut: reservation.checkOut }} />
+        )}
 
         {reservation && (
           <Card className="shadow-md border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden">

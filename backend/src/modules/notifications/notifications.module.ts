@@ -2,21 +2,20 @@ import { Controller, Get, HttpCode, Inject, Injectable, Logger, Module, OnModule
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../../config/configuration';
 import { SmtpEmailSender } from './smtp-email.sender';
-import { InjectConnection } from '@nestjs/mongoose';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsOptional } from 'class-validator';
-import { Connection, Types } from 'mongoose';
+import { sql } from 'kysely';
 import type { AuthUser } from '../../common/auth/auth-user';
 import { CurrentUser } from '../../common/decorators';
 import { PaginationQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe, pageParams } from '../../common/utils';
+import { ParseUuidPipe, pageParams } from '../../common/utils';
 import { decryptSecret } from '../../database/common/crypto';
 import { NOTIFICATION_EVENT, NotificationChannel, NotificationStatus, NotificationType } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
-import { Models, getModels } from '../../database/models';
-import type { Notification } from '../../database/schemas/ops.schema';
+import type { Notification } from '../../database/db-types';
+import { Db, InjectDb } from '../../database/kysely';
 import { JobContext, JobHandler, JobHandlerRegistry, isFinalAttempt, nonRetryable } from '../../jobs/job-handler';
 import { QUEUES } from '../../jobs/queues';
 
@@ -74,31 +73,34 @@ export class InAppSender implements NotificationSender {
 
 @Injectable()
 export class NotificationsService {
-  private readonly m: Models;
+  constructor(@InjectDb() private readonly db: Db) {}
 
-  constructor(@InjectConnection() connection: Connection) {
-    this.m = getModels(connection);
-  }
-
-  inbox(user: AuthUser, q: InboxQueryDto) {
+  async inbox(user: AuthUser, q: InboxQueryDto) {
     const p = pageParams(q.page, q.limit);
-    const filter = {
-      userId: user.userId,
-      channel: NotificationChannel.IN_APP,
-      status: q.unread ? { $in: [NotificationStatus.QUEUED, NotificationStatus.SENT] } : { $ne: NotificationStatus.FAILED },
-    };
-    return Promise.all([
-      this.m.Notification.find(filter, { metadata: 0 }).sort({ createdAt: -1 }).skip(p.skip).limit(p.limit).lean(),
-      this.m.Notification.countDocuments(filter),
-    ]).then(([items, total]) => ({ items, page: p.page, limit: p.limit, total }));
+    let query = this.db.selectFrom('notifications').where('userId', '=', user.userId).where('channel', '=', NotificationChannel.IN_APP);
+    query = q.unread ? query.where('status', 'in', [NotificationStatus.QUEUED, NotificationStatus.SENT]) : query.where('status', '!=', NotificationStatus.FAILED);
+    const [items, total] = await Promise.all([
+      query
+        .select(['id', 'propertyId', 'userId', 'reservationId', 'type', 'channel', 'status', 'subject', 'message', 'sentAt', 'readAt', 'createdAt'])
+        .orderBy('createdAt', 'desc')
+        .orderBy('id', 'desc')
+        .offset(p.skip)
+        .limit(p.limit)
+        .execute(),
+      query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
+    ]);
+    return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
-  async markRead(user: AuthUser, id: Types.ObjectId) {
-    const n = await this.m.Notification.findOneAndUpdate(
-      { _id: id, userId: user.userId, channel: NotificationChannel.IN_APP },
-      { $set: { status: NotificationStatus.READ, readAt: new Date() } },
-      { new: true },
-    ).lean();
+  async markRead(user: AuthUser, id: string) {
+    const n = await this.db
+      .updateTable('notifications')
+      .set({ status: NotificationStatus.READ, readAt: new Date() })
+      .where('id', '=', id)
+      .where('userId', '=', user.userId)
+      .where('channel', '=', NotificationChannel.IN_APP)
+      .returning('id')
+      .executeTakeFirst();
     if (!n) throw new NotFoundError('Notification', id);
     return { ok: true };
   }
@@ -107,18 +109,16 @@ export class NotificationsService {
 @Injectable()
 export class NotificationJobHandler implements JobHandler<'notification'>, OnModuleInit {
   readonly queue = QUEUES.NOTIFICATION;
-  private readonly m: Models;
   private readonly senders: Map<NotificationChannel, NotificationSender>;
 
   constructor(
-    @InjectConnection() connection: Connection,
+    @InjectDb() private readonly db: Db,
     private readonly registry: JobHandlerRegistry,
     @Inject(EMAIL_SENDER) email: NotificationSender,
     sms: LogSmsSender,
     whatsapp: LogWhatsAppSender,
     inApp: InAppSender,
   ) {
-    this.m = getModels(connection);
     this.senders = new Map([email, sms, whatsapp, inApp].map((s) => [s.channel, s] as const));
   }
 
@@ -132,28 +132,39 @@ export class NotificationJobHandler implements JobHandler<'notification'>, OnMod
   async handle(ctx: JobContext<'notification'>) {
     const now = new Date();
     // Lease: only one worker sends a given notification at a time.
-    const n = await this.m.Notification.findOneAndUpdate(
-      { _id: ctx.data.notificationId, status: NotificationStatus.QUEUED, $or: [{ lockedUntil: null }, { lockedUntil: { $lt: now } }] },
-      { $set: { lockedUntil: new Date(now.getTime() + 60_000) }, $inc: { attempts: 1 } },
-      { new: true },
-    ).lean();
+    const n = await this.db
+      .updateTable('notifications')
+      .set({ lockedUntil: new Date(now.getTime() + 60_000), attempts: sql<number>`attempts + 1` })
+      .where('id', '=', ctx.data.notificationId)
+      .where('status', '=', NotificationStatus.QUEUED)
+      .where((w) => w.or([w('lockedUntil', 'is', null), w('lockedUntil', '<', now)]))
+      .returningAll()
+      .executeTakeFirst();
     if (!n) return { status: 'SKIPPED_ALREADY_HANDLED' };
     try {
-      const sender = this.senders.get(n.channel);
+      const sender = this.senders.get(n.channel as NotificationChannel);
       if (!sender) throw nonRetryable(new Error(`No sender for ${n.channel}`));
-      const res = await sender.send({ id: String(n._id), event: NOTIFICATION_EVENT[n.type], recipient: n.recipient ?? String(n.userId), subject: n.subject, body: this.render(n) });
-      await this.m.Notification.updateOne(
-        { _id: n._id },
-        // One-time links are removed once delivered, so the database never keeps a usable link.
-        { $set: { status: NotificationStatus.SENT, sentAt: new Date(), lockedUntil: null, lastError: null, 'metadata.providerMessageId': res.providerMessageId ?? null }, $unset: { 'metadata.encryptedLink': 1 } },
-      );
+      const res = await sender.send({ id: n.id, event: NOTIFICATION_EVENT[n.type as NotificationType], recipient: n.recipient ?? String(n.userId), subject: n.subject ?? undefined, body: this.render(n) });
+      // One-time links are removed once delivered, so the database never keeps a usable link.
+      await this.db
+        .updateTable('notifications')
+        .set({
+          status: NotificationStatus.SENT,
+          sentAt: new Date(),
+          lockedUntil: null,
+          lastError: null,
+          metadata: sql<Record<string, unknown>>`(metadata - 'encryptedLink') || jsonb_build_object('providerMessageId', ${res.providerMessageId ?? null}::text)` as never,
+        })
+        .where('id', '=', n.id)
+        .execute();
       return { status: 'SENT' };
     } catch (err) {
       const final = (err as Error).name === 'UnrecoverableError' || isFinalAttempt(ctx);
-      await this.m.Notification.updateOne(
-        { _id: n._id },
-        { $set: { status: final ? NotificationStatus.FAILED : NotificationStatus.QUEUED, lockedUntil: null, lastError: (err as Error).message.slice(0, 2000) } },
-      );
+      await this.db
+        .updateTable('notifications')
+        .set({ status: final ? NotificationStatus.FAILED : NotificationStatus.QUEUED, lockedUntil: null, lastError: (err as Error).message.slice(0, 2000) })
+        .where('id', '=', n.id)
+        .execute();
       throw final ? nonRetryable(err) : err;
     }
   }
@@ -199,7 +210,7 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark an in-app notification read' })
   @ApiEnvelope(OkDto)
   @ApiStandardErrors({ notFound: true })
-  read(@CurrentUser() user: AuthUser, @Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  read(@CurrentUser() user: AuthUser, @Param('id', ParseUuidPipe) id: string) {
     return this.notifications.markRead(user, id);
   }
 }

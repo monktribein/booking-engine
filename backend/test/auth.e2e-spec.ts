@@ -18,7 +18,7 @@ describe('Authentication', () => {
     expect(res.body.data).toMatchObject({ accessToken: expect.any(String), refreshToken: expect.any(String), expiresIn: 900 });
     expect(res.body.data.user.role).toBe('PROPERTY_OWNER');
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|scrypt\$/);
-    const stored = await t.conn.db!.collection('users').findOne({ email: 'dup-check@example.com' });
+    const stored = await t.db.selectFrom('users').selectAll().where('email', '=', 'dup-check@example.com').executeTakeFirst();
     expect(stored!.passwordHash).toMatch(/^scrypt\$/); // hashed at rest
   });
 
@@ -80,12 +80,12 @@ describe('Authentication', () => {
     // Unknown emails get the same answer (no account enumeration).
     await t.http().post('/auth/forgot-password').send({ email: 'ghost@example.com' }).expect(200);
 
-    const n = await t.conn.db!.collection('notifications').findOne({ type: 'PASSWORD_RESET', recipient: owner.email });
+    const n = await t.db.selectFrom('notifications').selectAll().where('type', '=', 'PASSWORD_RESET').where('recipient', '=', owner.email).executeTakeFirst();
     expect(n!.message).not.toMatch(/token=/); // the link is not stored in clear
-    const link = decryptSecret(n!.metadata.encryptedLink);
+    const link = decryptSecret((n!.metadata as { encryptedLink: string }).encryptedLink);
     const token = new URL(link).searchParams.get('token')!;
     await t.drain(); // notification worker sends it and strips the link
-    const sent = await t.conn.db!.collection('notifications').findOne({ _id: n!._id });
+    const sent = await t.db.selectFrom('notifications').selectAll().where('id', '=', n!.id).executeTakeFirst();
     expect(sent!.status).toBe('SENT');
     expect(sent!.metadata.encryptedLink).toBeUndefined();
 

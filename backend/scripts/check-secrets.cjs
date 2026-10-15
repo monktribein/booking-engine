@@ -10,7 +10,8 @@ const { execFileSync } = require('node:child_process');
 const { existsSync, readFileSync, readdirSync, statSync } = require('node:fs');
 const path = require('node:path');
 
-const root = path.resolve(__dirname, '..');
+// The repository root (backend/ and frontend/ and sdk/ and docs/ are all scanned), not just backend/.
+const root = path.resolve(__dirname, '..', '..');
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', 'out', 'build', 'coverage', 'test-results', 'playwright-report', '.git']);
 const SKIP_FILES = /(package-lock\.json|\.(png|jpe?g|gif|ico|svg|webp|woff2?|ttf|zip|pdf|tsbuildinfo))$/i;
 const IGNORED_ENV = /(^|\/)\.env(\.(?!example$)[^/]+)?$/; // .env, .env.local ... (not .env.example)
@@ -24,6 +25,7 @@ const RULES = [
   ['Slack token', /\bxox[baprs]-[A-Za-z0-9-]{10,}/],
   ['Google API key', /\bAIza[0-9A-Za-z_-]{35}\b/],
   ['database URL with a password', /\bmongodb(?:\+srv)?:\/\/[^\s"'<>@/:]+:(?!pass\b|password\b|\*+)[^\s"'<>@/]{4,}@(?!host\b)/],
+  ['PostgreSQL URL with a password', /\bpostgres(?:ql)?:\/\/[^\s"'<>@/:]+:(?!pass\b|password\b|\*+|\$|%|\[YOUR-PASSWORD\])[^\s"'<>@/]{4,}@(?!host\b|127\.0\.0\.1|localhost|\[::1\])/],
   ['JWT', /\beyJ[A-Za-z0-9_-]{15,}\.eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}\b/],
   ['hard-coded secret assignment', /\b(?:JWT_SECRET|JWT_REFRESH_SECRET|ENCRYPTION_KEY|RAZORPAY_KEY_SECRET|RAZORPAY_WEBHOOK_SECRET)\s*=\s*(?!\s*$)(?!change-me|your-|<|\$\{|CHANGE)[^\s#]{12,}/],
 ];

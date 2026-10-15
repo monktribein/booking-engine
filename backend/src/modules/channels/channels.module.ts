@@ -2,13 +2,12 @@ import { Body, Controller, Delete, Get, HttpCode, Module, Param, Post, Query, Re
 import { ConfigService } from '@nestjs/config';
 import { ApiExcludeEndpoint, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, Public, ReqMeta } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
-import { ParseObjectIdPipe } from '../../common/utils';
+import { ParseUuidPipe } from '../../common/utils';
 import type { AppConfig } from '../../config/configuration';
 import { ChannelCode } from '../../database/enums';
 import { DomainError } from '../../database/errors';
@@ -40,7 +39,7 @@ export class ChannelsController {
   @ApiOperation({ summary: 'Connection status of every channel (internal TIRVONA/DIRECT and external OTAs)' })
   @ApiEnvelope(ChannelStatusDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  list(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId) {
+  list(@Param('propertyId', ParseUuidPipe) propertyId: string) {
     return this.channels.listChannels(propertyId);
   }
 
@@ -51,7 +50,7 @@ export class ChannelsController {
   @ApiOperation({ summary: "Start the channel's official authorization flow; redirect the owner to authorizationUrl" })
   @ApiEnvelope(ConnectResultDto)
   @ApiStandardErrors({ notFound: true })
-  connect(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Param('channel') channel: string) {
+  connect(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Param('channel') channel: string) {
     return this.channels.connect(user, meta, propertyId, channel);
   }
 
@@ -62,7 +61,7 @@ export class ChannelsController {
   @ApiOperation({ summary: 'Disconnect: revoke remotely (best effort) and wipe stored credentials' })
   @ApiEnvelope(ConnectResultDto)
   @ApiStandardErrors({ notFound: true })
-  disconnect(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Param('channel') channel: string) {
+  disconnect(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Param('channel') channel: string) {
     return this.channels.disconnect(user, meta, propertyId, channel);
   }
 
@@ -73,7 +72,7 @@ export class ChannelsController {
   @ApiOperation({ summary: 'External listings with their rooms/rate plans and current mappings' })
   @ApiEnvelope(ListingWithMappingsDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
-  listings(@Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Param('channel') channel: string, @Query('refresh') refresh?: string) {
+  listings(@Param('propertyId', ParseUuidPipe) propertyId: string, @Param('channel') channel: string, @Query('refresh') refresh?: string) {
     return this.channels.getListings(propertyId, channel, refresh !== 'false');
   }
 
@@ -86,7 +85,7 @@ export class ChannelsController {
   map(
     @CurrentUser() user: AuthUser,
     @ReqMeta() meta: RequestMeta,
-    @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId,
+    @Param('propertyId', ParseUuidPipe) propertyId: string,
     @Param('channel') channel: string,
     @Body() dto: CreateMappingsDto,
   ) {
@@ -102,8 +101,8 @@ export class ChannelsController {
   unmap(
     @CurrentUser() user: AuthUser,
     @ReqMeta() meta: RequestMeta,
-    @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId,
-    @Param('mappingId', ParseObjectIdPipe) mappingId: Types.ObjectId,
+    @Param('propertyId', ParseUuidPipe) propertyId: string,
+    @Param('mappingId', ParseUuidPipe) mappingId: string,
   ) {
     return this.channels.removeMapping(user, meta, propertyId, mappingId);
   }
@@ -115,7 +114,7 @@ export class ChannelsController {
   @ApiOperation({ summary: 'Manual full resync (availability, rates, restrictions) via the sync queues' })
   @ApiEnvelope(SyncTriggerResultDto, { status: 202 })
   @ApiStandardErrors({ notFound: true })
-  sync(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseObjectIdPipe) propertyId: Types.ObjectId, @Param('channel') channel: string) {
+  sync(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Param('channel') channel: string) {
     return this.channels.triggerSync(user, meta, propertyId, channel);
   }
 }

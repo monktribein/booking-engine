@@ -1,15 +1,14 @@
 import { Body, Controller, Get, HttpCode, Injectable, Module, OnModuleInit, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { IsEnum, IsInt, IsMongoId, IsOptional, IsString, Length, Min } from 'class-validator';
+import { IsEnum, IsInt, IsUUID, IsOptional, IsString, Length, Min } from 'class-validator';
 import type { Request } from 'express';
-import type { Types } from 'mongoose';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { CurrentUser, Public, ReqMeta } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
-import { ParseObjectIdPipe, toObjectId } from '../../common/utils';
+import { ParseUuidPipe, toUuid } from '../../common/utils';
 import { PaymentProvider, PaymentStatus, RefundStatus } from '../../database/enums';
 import { JobContext, JobHandler, JobHandlerRegistry } from '../../jobs/job-handler';
 import { QUEUES } from '../../jobs/queues';
@@ -19,7 +18,7 @@ import { RazorpayProvider } from './providers/razorpay.provider';
 // ------------------------------------------------------------------ DTOs
 
 export class CreatePaymentDto {
-  @ApiProperty() @IsMongoId() reservationId!: string;
+  @ApiProperty() @IsUUID() reservationId!: string;
   @ApiProperty({ enum: [PaymentProvider.RAZORPAY, PaymentProvider.CASH, PaymentProvider.BANK_TRANSFER, PaymentProvider.OTHER] })
   @IsEnum([PaymentProvider.RAZORPAY, PaymentProvider.CASH, PaymentProvider.BANK_TRANSFER, PaymentProvider.OTHER])
   provider!: PaymentProvider;
@@ -90,7 +89,7 @@ export class PaymentsController {
   @ApiEnvelope(CreatePaymentResultDto, { status: 201 })
   @ApiStandardErrors({ notFound: true })
   create(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Body() dto: CreatePaymentDto) {
-    return this.payments.create(user, meta, { ...dto, reservationId: toObjectId(dto.reservationId, 'reservationId') });
+    return this.payments.create(user, meta, { ...dto, reservationId: toUuid(dto.reservationId, 'reservationId') });
   }
 
   @Public()
@@ -121,7 +120,7 @@ export class PaymentsController {
   @ApiEnvelope(PaymentResponseDto, { isArray: true })
   @ApiStandardErrors({ notFound: true })
   list(@Query('reservationId') reservationId: string) {
-    return this.payments.listForReservation(toObjectId(reservationId, 'reservationId'));
+    return this.payments.listForReservation(toUuid(reservationId, 'reservationId'));
   }
 
   @Get(':id')
@@ -129,7 +128,7 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Payment status, with its refunds' })
   @ApiEnvelope(PaymentResponseDto)
   @ApiStandardErrors({ notFound: true })
-  get(@Param('id', ParseObjectIdPipe) id: Types.ObjectId) {
+  get(@Param('id', ParseUuidPipe) id: string) {
     return this.payments.get(id);
   }
 
@@ -138,7 +137,7 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Full or partial refund (queued; executed at the gateway by the payment worker)' })
   @ApiEnvelope(RefundResponseDto, { status: 201 })
   @ApiStandardErrors({ notFound: true, conflict: 'INVALID_STATE_TRANSITION' })
-  refund(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseObjectIdPipe) id: Types.ObjectId, @Body() dto: RefundDto) {
+  refund(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: RefundDto) {
     return this.payments.requestRefund(user, meta, id, dto);
   }
 }

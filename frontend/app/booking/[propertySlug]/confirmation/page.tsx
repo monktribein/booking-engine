@@ -17,6 +17,7 @@ import { formatDate, formatDateShort } from '@/lib/utils/dates';
 import { ApiError } from '@/lib/api/client';
 import { ReservationStatus } from '@/types';
 import { CheckCircle2, Clock, XCircle, BedDouble, Building2, Printer } from 'lucide-react';
+import { RememberBooking } from '@/components/booking/RememberBooking';
 
 const POLL_MS = 4000;
 const POLL_MAX = 8; // ~32s of waiting for the webhook / capture to land
@@ -109,6 +110,8 @@ function Confirmation() {
         )}
         {cancelled && <p className="text-sm text-slate-500">This booking is no longer active. Any payment is refunded to the original method.</p>}
       </div>
+
+      {email && <RememberBooking booking={{ code: r.reservationCode, email, propertyName: r.propertyName, checkIn: r.checkIn, checkOut: r.checkOut }} />}
 
       <Card className="rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-xl overflow-hidden bg-white dark:bg-slate-900">
         <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 text-white flex items-center justify-between">

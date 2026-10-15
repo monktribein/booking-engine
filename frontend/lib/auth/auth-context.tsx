@@ -14,6 +14,8 @@ interface AuthContextType {
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
+  /** Re-reads the signed-in user (after the profile changed). */
+  refreshUser: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
 }
 
@@ -84,6 +86,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [queryClient]);
 
+  const refreshUser = useCallback(async () => {
+    setUser(await authApi.me());
+  }, []);
+
   const hasRole = (roles: UserRole[]): boolean => {
     if (!user) return false;
     if (user.role === UserRole.SUPER_ADMIN) return true;
@@ -92,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, isAuthenticated: !!user, sessionError, login, register, logout, hasRole }}
+      value={{ user, isLoading, isAuthenticated: !!user, sessionError, login, register, logout, refreshUser, hasRole }}
     >
       {children}
     </AuthContext.Provider>

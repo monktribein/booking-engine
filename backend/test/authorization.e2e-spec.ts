@@ -79,12 +79,12 @@ describe('Authorization: property isolation and RBAC', () => {
       // The invite email carries a set-password link; use the reset flow to activate the account.
       await t.drain();
       const { decryptSecret } = await import('../src/database/common/crypto');
-      const n = await t.conn.db!.collection('notifications').findOne({ recipient: 'desk@example.com', type: 'PASSWORD_RESET' });
+      const n = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', 'desk@example.com').where('type', '=', 'PASSWORD_RESET').executeTakeFirst();
       // Sent notifications have their link stripped; issue a fresh reset for the test.
       expect(n!.status).toBe('SENT');
       await t.http().post('/auth/forgot-password').send({ email: 'desk@example.com' }).expect(200);
-      const fresh = await t.conn.db!.collection('notifications').find({ recipient: 'desk@example.com', type: 'PASSWORD_RESET', status: 'QUEUED' }).next();
-      const token = new URL(decryptSecret(fresh!.metadata.encryptedLink)).searchParams.get('token')!;
+      const fresh = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', 'desk@example.com').where('type', '=', 'PASSWORD_RESET').where('status', '=', 'QUEUED').executeTakeFirst();
+      const token = new URL(decryptSecret((fresh!.metadata as { encryptedLink: string }).encryptedLink)).searchParams.get('token')!;
       await t.http().post('/auth/reset-password').send({ token, newPassword: 'Rec3ption-pass' }).expect(200);
       reception = await login(t, 'desk@example.com', 'Rec3ption-pass');
     });
@@ -129,10 +129,10 @@ describe('Authorization: property isolation and RBAC', () => {
 
     it('SUPER_ADMIN can use admin endpoints and reach any property', async () => {
       const { hashPassword } = await import('../src/database/common/crypto');
-      await t.conn.db!.collection('users').insertOne({
-        organizationId: null, name: 'Platform Admin', email: 'root@tirvona.test', passwordHash: await hashPassword('R00t-password!'),
-        role: 'SUPER_ADMIN', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date(),
-      });
+      await t.db
+        .insertInto('users')
+        .values({ organizationId: null, name: 'Platform Admin', email: 'root@tirvona.test', passwordHash: await hashPassword('R00t-password!'), role: 'SUPER_ADMIN', status: 'ACTIVE' })
+        .execute();
       const admin = await login(t, 'root@tirvona.test', 'R00t-password!');
       const props = await t.http().get('/admin/properties').set(bearer(admin.token)).expect(200);
       expect(props.body.data.total).toBeGreaterThanOrEqual(2);

@@ -58,11 +58,11 @@ describe('Notifications over SMTP (local test server)', () => {
     const mail = mails[0];
     expect(mail.raw).toMatch(/From: .*bookings@radha\.example/i);
     expect(mail.raw).toContain(res.body.data.reservationCode); // the booking code is in the message
-    const rows = await t.conn.db!.collection('notifications').find({ recipient: email }).toArray();
+    const rows = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', email).orderBy('createdAt').execute();
     expect(rows.length).toBe(mails.length);
     expect(rows.every((r) => r.status === 'SENT' && r.attempts === 1)).toBe(true);
-    expect(rows[0].metadata.providerMessageId).toMatch(new RegExp(`^<ntf-${rows[0]._id}@radha\\.example>$`));
-    expect(mail.raw).toContain(`Message-ID: <ntf-${rows[0]._id}@radha.example>`);
+    expect((rows[0].metadata as { providerMessageId: string }).providerMessageId).toMatch(new RegExp(`^<ntf-${rows[0].id}@radha\\.example>$`));
+    expect(mail.raw).toContain(`Message-ID: <ntf-${rows[0].id}@radha.example>`);
   });
 
   it('re-delivering the same notification job sends nothing more (idempotent)', async () => {
@@ -70,9 +70,9 @@ describe('Notifications over SMTP (local test server)', () => {
     await book(email);
     await t.drain();
     const before = inbox.filter((m) => m.to.includes(email)).length;
-    const row = await t.conn.db!.collection('notifications').findOne({ recipient: email });
+    const row = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', email).executeTakeFirst();
     const handler = t.app.get(JobHandlerRegistry).get('notification');
-    const out = await handler.handle({ id: 'replay', name: 'send', data: { notificationId: String(row!._id) }, attemptsMade: 0, maxAttempts: 5 } as never);
+    const out = await handler.handle({ id: 'replay', name: 'send', data: { notificationId: row!.id }, attemptsMade: 0, maxAttempts: 5 } as never);
     expect(out).toMatchObject({ status: 'SKIPPED_ALREADY_HANDLED' });
     expect(inbox.filter((m) => m.to.includes(email)).length).toBe(before);
   });
@@ -86,7 +86,7 @@ describe('Notifications over SMTP (local test server)', () => {
     } finally {
       rejectWith = null;
     }
-    const row = await t.conn.db!.collection('notifications').findOne({ recipient: email });
+    const row = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', email).executeTakeFirst();
     expect(row).toMatchObject({ status: 'FAILED', attempts: 1 });
     expect(row!.lastError).toMatch(/550/);
     expect(inbox.some((m) => m.to.includes(email))).toBe(false);
@@ -99,7 +99,7 @@ describe('Notifications over SMTP (local test server)', () => {
     await book(email);
     await t.drain();
     rejectWith = null;
-    const row = await t.conn.db!.collection('notifications').findOne({ recipient: email });
+    const row = await t.db.selectFrom('notifications').selectAll().where('recipient', '=', email).executeTakeFirst();
     expect(row).toMatchObject({ status: 'SENT' });
     expect(row!.attempts).toBeGreaterThanOrEqual(2);
     expect(inbox.filter((m) => m.to.includes(email))).toHaveLength(1);

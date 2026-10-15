@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsMongoId, IsOptional, Matches, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Matches, Max, Min } from 'class-validator';
 
 export const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const IsDateOnly = () => Matches(DATE_ONLY_PATTERN, { message: '$property must be a date in YYYY-MM-DD format' });
@@ -24,7 +24,7 @@ export class PaginationQueryDto {
 
 export class PropertyScopedPageQueryDto extends PaginationQueryDto {
   @ApiProperty({ description: 'Property the results belong to (access is checked)' })
-  @IsMongoId()
+  @IsUUID()
   propertyId!: string;
 }
 
