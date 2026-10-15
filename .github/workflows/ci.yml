@@ -1,0 +1,161 @@
+# Continuous integration. Every job is independent (no `needs`), so a failure in one stage never hides the others.
+# No deployment happens here and no secret is read: the workflow needs none (tests use throw-away databases and fixed fake credentials).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  # Compiled into the frontend bundle at build time. A public value; this workflow has no secrets.
+  NEXT_PUBLIC_API_URL: http://localhost:3000
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: node scripts/check-secrets.cjs
+
+  backend:
+    name: Backend (typecheck, tests on the inline queue, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # starts its own MongoDB replica set (mongodb-memory-server); the real-Redis suites skip themselves
+      - run: npm test
+      - run: npm run build
+
+  backend-bullmq:
+    name: Backend on real BullMQ + Redis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install Redis 6.2+ (BullMQ's recommended minimum) without running it as a system service
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          sudo systemctl stop redis-server || true
+          redis-server --version
+      - run: npm ci
+      # scripts/test-bullmq.cjs starts its own throw-away Redis on a free loopback port and stops it afterwards. Each test
+      # app uses a unique key prefix and only ever deletes its own keys.
+      - run: npm run test:bullmq
+        env:
+          REDIS_SERVER_BIN: /usr/bin/redis-server
+
+  frontend:
+    name: Frontend (typecheck, lint, unit + component tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Browser end-to-end (Playwright, real backend sandbox)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+        env:
+          CI: 'true'
+          PW_CHANNEL: '' # use the Chromium installed above, not a system Chrome
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+  docker:
+    name: Docker images, startup validation, compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t tirvona-api:ci .
+      - name: Backend refuses to start with an empty production environment
+        run: |
+          set +e
+          timeout 60 docker run --rm -e NODE_ENV=production tirvona-api:ci > backend-start.log 2>&1
+          code=$?
+          cat backend-start.log
+          test $code -ne 0 && test $code -ne 124
+      - name: Build frontend image (public build argument only, no secrets)
+        run: docker build --build-arg NEXT_PUBLIC_API_URL=https://api.example.com -t tirvona-frontend:ci ./frontend
+      - name: Frontend image becomes healthy and serves traffic
+        run: |
+          docker run -d --name web -p 3001:3000 tirvona-frontend:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' web)" = healthy ] && break
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' web)" = healthy
+          curl -fsS http://localhost:3001/api/health
+          docker rm -f web
+      - name: Frontend refuses to start when built against a plain-http API
+        run: |
+          docker build --build-arg NEXT_PUBLIC_API_URL=http://insecure.example.com -t tirvona-frontend:insecure ./frontend
+          set +e
+          timeout 60 docker run --rm tirvona-frontend:insecure
+          code=$?
+          test $code -eq 1
+      - name: Compose file is valid
+        run: |
+          cp .env.example .env
+          docker compose config --quiet

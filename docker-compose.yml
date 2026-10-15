@@ -1,0 +1,76 @@
+# Local stack: API + worker + Redis + MongoDB (single-node replica set; transactions need one).
+#   cp .env.example .env   (fill in secrets)
+#   docker compose up --build
+#   docker compose run --rm api node dist/scripts/setup-db.js     # indexes + validators
+#
+# Production: point MONGODB_URI at MongoDB Atlas and drop the `mongo` service
+# (docker compose up api worker redis), or run the image on your orchestrator.
+x-app: &app
+  build: ./backend
+  env_file: ./backend/.env
+  environment:
+    MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0&directConnection=true}
+    REDIS_URL: redis://redis:6379
+    QUEUE_DRIVER: bullmq
+  depends_on:
+    redis: { condition: service_healthy }
+    mongo: { condition: service_healthy }
+  restart: unless-stopped
+
+services:
+  # Next.js web app. Build args are PUBLIC (compiled into the browser bundle). No secrets are passed to this service.
+  #   PUBLIC_API_URL  = the API address the BROWSER uses (e.g. https://api.example.com; http://localhost:3000 for a local run)
+  #   PUBLIC_APP_URL  = this site's public URL; it must also be listed in the API's CORS_ORIGINS (.env)
+  # Server-side rendering reaches the API on the private network through API_INTERNAL_URL.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+        NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3001}
+    environment:
+      API_INTERNAL_URL: http://api:3000
+      ALLOW_INSECURE_API_URL: ${ALLOW_INSECURE_API_URL:-false}   # true ONLY for a local run over plain http
+    ports: ["3001:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    ports: ["3000:3000"]
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0&directConnection=true}
+      REDIS_URL: redis://redis:6379
+      QUEUE_DRIVER: bullmq
+      WORKERS_ENABLED: "false"      # API instances only produce jobs
+      SCHEDULER_ENABLED: "false"
+
+  worker:
+    <<: *app
+    command: ["node", "dist/src/worker.js"]   # consumes all BullMQ queues + runs the scheduler
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]  # BullMQ requires noeviction
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:8.0
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
+      interval: 5s
+      retries: 30
+
+volumes:
+  mongo-data:
+  redis-data:
