@@ -64,7 +64,7 @@ export function createPool(opts: DatabaseOptions): Pool {
     if (!opts.caCert) throw new Error('DATABASE_SSL=verify-full needs DATABASE_CA_CERT (PEM text or a file path)');
     ssl = { rejectUnauthorized: true, ca: opts.caCert.includes('BEGIN CERTIFICATE') ? opts.caCert : fs.readFileSync(opts.caCert, 'utf8') };
   }
-  return new Pool({
+  const pool = new Pool({
     connectionString: url.toString(),
     max: opts.poolMax ?? 20,
     idleTimeoutMillis: 30_000,
@@ -72,6 +72,10 @@ export function createPool(opts: DatabaseOptions): Pool {
     application_name: opts.applicationName ?? 'tirvona-api',
     ssl,
   });
+  // An idle connection can be cut by the server (restart, failover, shutdown). Without a listener Node treats that as an uncaught
+  // 'error' event and kills the process; the pool simply drops the broken client and opens a new one on the next query.
+  pool.on('error', (err) => console.warn(`database: idle connection error (${(err as Error).message}); the pool will reconnect`));
+  return pool;
 }
 
 export function createDb(pool: Pool): Db {
