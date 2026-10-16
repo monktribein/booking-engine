@@ -1,4 +1,5 @@
 import { decryptSecret } from '../src/database/common/crypto';
+import { OutboxDispatcher } from '../src/jobs/outbox.dispatcher';
 import { bearer, login, registerOwner, Session } from './utils/fixtures';
 import { createTestApp, TestApp } from './utils/test-app';
 
@@ -76,11 +77,15 @@ describe('Authentication', () => {
 
   it('forgot/reset password: link is delivered encrypted, single use, and signs out every session', async () => {
     const before = await login(t, owner.email, owner.password);
+    // Hold the notification worker back until the (encrypted) link has been read: otherwise it can send the mail and strip the link first.
+    const outbox = t.app.get(OutboxDispatcher);
+    const hold = jest.spyOn(outbox, 'flush').mockResolvedValue(undefined as never);
     await t.http().post('/auth/forgot-password').send({ email: owner.email }).expect(200);
     // Unknown emails get the same answer (no account enumeration).
     await t.http().post('/auth/forgot-password').send({ email: 'ghost@example.com' }).expect(200);
 
-    const n = await t.db.selectFrom('notifications').selectAll().where('type', '=', 'PASSWORD_RESET').where('recipient', '=', owner.email).executeTakeFirst();
+    const n = await t.db.selectFrom('notifications').selectAll().where('type', '=', 'PASSWORD_RESET').where('recipient', '=', owner.email).orderBy('createdAt', 'desc').executeTakeFirst();
+    hold.mockRestore();
     expect(n!.message).not.toMatch(/token=/); // the link is not stored in clear
     const link = decryptSecret((n!.metadata as { encryptedLink: string }).encryptedLink);
     const token = new URL(link).searchParams.get('token')!;

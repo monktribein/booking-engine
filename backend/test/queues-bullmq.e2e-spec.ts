@@ -125,7 +125,8 @@ suite('BullMQ on real Redis', () => {
     await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000002' }, { jobId: 'dup-1' });
     await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000002' }, { jobId: 'dup-1' });
     await t.drain();
-    expect(spy).toHaveBeenCalledTimes(1);
+    // Count only THIS job: retries of earlier tests' jobs (an SMTP outage is retried with backoff) also pass through the same handler.
+    expect(spy.mock.calls.filter(([ctx]) => (ctx as { data: { notificationId?: string } }).data.notificationId === '000000000000000000000002')).toHaveLength(1);
   });
 
   it('a job for a notification that no longer needs sending completes without error or retry loop', async () => {
@@ -133,8 +134,9 @@ suite('BullMQ on real Redis', () => {
     const spy = jest.spyOn(handler, 'handle');
     await producer.enqueue('notification', 'send', { notificationId: '0000000000000000000000ff' }, { jobId: 'ghost-1' });
     await t.drain();
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(await spy.mock.results[0].value).toMatchObject({ status: 'SKIPPED_ALREADY_HANDLED' });
+    const mine = spy.mock.calls.map((c, i) => ({ ctx: c[0] as { data: { notificationId?: string } }, i })).filter((x) => x.ctx.data.notificationId === '0000000000000000000000ff');
+    expect(mine).toHaveLength(1);
+    expect(await spy.mock.results[mine[0].i].value).toMatchObject({ status: 'SKIPPED_ALREADY_HANDLED' });
   });
 
   it('channel-sync jobs run through Redis: a MOCK push is delivered, and a simulated outage is retried then reported', async () => {
