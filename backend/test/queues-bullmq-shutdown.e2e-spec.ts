@@ -47,7 +47,7 @@ suite('BullMQ: graceful shutdown', () => {
       return { status: 'SENT' };
     });
     const prefix = process.env.QUEUE_PREFIX!;
-    await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000003' }, { jobId: 'slow-1' });
+    await producer.enqueue('notification', 'send', { notificationId: '00000000-0000-4000-8000-000000000003' }, { jobId: 'slow-1' });
     await until(async () => ((await producer.stats()).find((q) => q.queue === 'notification')!.counts.active ?? 0) === 1, 'job to become active');
     const redis = new Redis(process.env.REDIS_URL!);
     try {

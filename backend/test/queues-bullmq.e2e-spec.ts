@@ -112,7 +112,7 @@ suite('BullMQ on real Redis', () => {
   it('an UnrecoverableError is not retried', async () => {
     const handler = registry.get('notification');
     jest.spyOn(handler, 'handle').mockRejectedValue(new UnrecoverableError('malformed payload'));
-    await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000001' }, { jobId: 'poison-1' });
+    await producer.enqueue('notification', 'send', { notificationId: '00000000-0000-4000-8000-000000000001' }, { jobId: 'poison-1' });
     await until(async () => (await producer.failed('notification', 50)).some((j) => j.id === 'poison-1'), 'poison job to fail');
     const job = (await producer.failed('notification', 50)).find((j) => j.id === 'poison-1')!;
     expect(job.attemptsMade).toBe(1);
@@ -122,19 +122,19 @@ suite('BullMQ on real Redis', () => {
   it('enqueueing the same jobId twice runs the job once (idempotent enqueue)', async () => {
     const handler = registry.get('notification');
     const spy = jest.spyOn(handler, 'handle');
-    await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000002' }, { jobId: 'dup-1' });
-    await producer.enqueue('notification', 'send', { notificationId: '000000000000000000000002' }, { jobId: 'dup-1' });
+    await producer.enqueue('notification', 'send', { notificationId: '00000000-0000-4000-8000-000000000002' }, { jobId: 'dup-1' });
+    await producer.enqueue('notification', 'send', { notificationId: '00000000-0000-4000-8000-000000000002' }, { jobId: 'dup-1' });
     await t.drain();
     // Count only THIS job: retries of earlier tests' jobs (an SMTP outage is retried with backoff) also pass through the same handler.
-    expect(spy.mock.calls.filter(([ctx]) => (ctx as { data: { notificationId?: string } }).data.notificationId === '000000000000000000000002')).toHaveLength(1);
+    expect(spy.mock.calls.filter(([ctx]) => (ctx as { data: { notificationId?: string } }).data.notificationId === '00000000-0000-4000-8000-000000000002')).toHaveLength(1);
   });
 
   it('a job for a notification that no longer needs sending completes without error or retry loop', async () => {
     const handler = registry.get('notification');
     const spy = jest.spyOn(handler, 'handle');
-    await producer.enqueue('notification', 'send', { notificationId: '0000000000000000000000ff' }, { jobId: 'ghost-1' });
+    await producer.enqueue('notification', 'send', { notificationId: '00000000-0000-4000-8000-0000000000ff' }, { jobId: 'ghost-1' });
     await t.drain();
-    const mine = spy.mock.calls.map((c, i) => ({ ctx: c[0] as { data: { notificationId?: string } }, i })).filter((x) => x.ctx.data.notificationId === '0000000000000000000000ff');
+    const mine = spy.mock.calls.map((c, i) => ({ ctx: c[0] as { data: { notificationId?: string } }, i })).filter((x) => x.ctx.data.notificationId === '00000000-0000-4000-8000-0000000000ff');
     expect(mine).toHaveLength(1);
     expect(await spy.mock.results[mine[0].i].value).toMatchObject({ status: 'SKIPPED_ALREADY_HANDLED' });
   });
