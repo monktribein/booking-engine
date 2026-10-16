@@ -86,7 +86,7 @@ const redisBin = process.env.TEST_REDIS_BIN;
     await stopRedis();
     let health = await t.http().get('/health');
     await until(async () => ((health = await t.http().get('/health')).status === 503), 'health to report the outage', 15_000);
-    expect(health.body.error.details).toMatchObject({ mongo: 'up', queues: 'down' });
+    expect(health.body.error.details).toMatchObject({ database: 'up', queues: 'down' });
 
     const started = Date.now();
     const res = await t.http().post('/reservations').set(bearer(owner.token)).send(reservationBody(s, day(5), day(6)));

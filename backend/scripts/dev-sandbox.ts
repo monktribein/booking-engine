@@ -11,6 +11,7 @@
  * Razorpay is a local fake (scripts/sandbox-razorpay-shim.cjs) with fixed test credentials: no network call to the gateway.
  */
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { startEphemeralPg } from './embedded-pg';
 
@@ -24,6 +25,10 @@ async function main() {
     DATABASE_SSL: 'disable',
     NODE_ENV: 'development',
     QUEUE_DRIVER: 'inline',
+    // Throw-away secrets for this run only, so the sandbox also starts on a machine that has no .env (CI). Nothing persists.
+    JWT_SECRET: process.env.JWT_SECRET ?? randomBytes(32).toString('hex'),
+    JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET ?? randomBytes(32).toString('hex'),
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY ?? randomBytes(32).toString('base64'),
     PORT: process.env.PORT ?? '3000',
     CORS_ORIGINS: process.env.CORS_ORIGINS ?? 'http://localhost:3001',
     APP_URL: process.env.APP_URL ?? 'http://localhost:3001',

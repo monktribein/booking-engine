@@ -86,12 +86,6 @@ services:
       interval: 5s
       retries: 20
 
-volumes: ["mongo-data:/data/db"]
-    healthcheck:
-      test: >
-        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
-      interval: 5s
-      retries: 30
 
 volumes:
   pg-data:
