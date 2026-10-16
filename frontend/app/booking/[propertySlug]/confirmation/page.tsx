@@ -3,7 +3,7 @@
 import React, { Suspense, useState, useSyncExternalStore } from 'react';
 import { useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,15 @@ function Confirmation() {
   }
   const [emailInput, setEmailInput] = useState('');
 
+  const queryClient = useQueryClient();
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const cancel = useMutation({
+    mutationFn: () => bookingEngineApi.cancelReservation(code, email as string),
+    onSuccess: (view) => {
+      queryClient.setQueryData(['public-booking', code, email], view);
+      setConfirmingCancel(false);
+    },
+  });
   const [polls, setPolls] = useState(0);
   const query = useQuery({
     queryKey: ['public-booking', code, email],
@@ -110,6 +119,25 @@ function Confirmation() {
         )}
         {cancelled && <p className="text-sm text-slate-500">This booking is no longer active. Any payment is refunded to the original method.</p>}
       </div>
+
+      {r.cancellation?.allowed && (
+        <Card className="p-5 space-y-3">
+          <h2 className="text-sm font-bold">Need to cancel?</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {r.cancellation.refundIfCancelledNow > 0 ? `If you cancel now you get ${formatCurrency(r.cancellation.refundIfCancelledNow, r.currency)} back to your original payment method.` : 'If you cancel now, nothing is refunded under the cancellation policy of this rate.'}
+          </p>
+          {cancel.isError && <Alert variant="danger" message={cancel.error instanceof Error ? cancel.error.message : 'Could not cancel the booking.'} />}
+          {confirmingCancel ? (
+            <div className="flex gap-2">
+              <Button variant="danger" disabled={cancel.isPending} onClick={() => cancel.mutate()}>{cancel.isPending ? 'Cancelling…' : 'Yes, cancel booking'}</Button>
+              <Button variant="outline" onClick={() => setConfirmingCancel(false)}>Keep booking</Button>
+            </div>
+          ) : (
+            <Button variant="outline" onClick={() => setConfirmingCancel(true)}>Cancel booking</Button>
+          )}
+        </Card>
+      )}
+      {!r.cancellation?.allowed && r.cancellation?.reason && !cancelled && <p className="text-xs text-slate-500">{r.cancellation.reason}</p>}
 
       {email && <RememberBooking booking={{ code: r.reservationCode, email, propertyName: r.propertyName, checkIn: r.checkIn, checkOut: r.checkOut }} />}
 

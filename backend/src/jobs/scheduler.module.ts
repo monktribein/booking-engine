@@ -12,6 +12,7 @@ import { ReservationService } from '../database/services/reservation.service';
 import { d } from '../database/sql';
 import { ChannelAdapterRegistry } from '../modules/channels/channel-registry';
 import { ChannelsModule } from '../modules/channels/channels.module';
+import { ReconciliationService } from '../modules/channels/providers/reconciliation.service';
 import { JobsProducer } from './jobs.producer';
 import { OutboxDispatcher } from './outbox.dispatcher';
 import { QUEUES } from './queues';
@@ -41,6 +42,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     private readonly inventory: InventoryService,
     private readonly producer: JobsProducer,
     private readonly channels: ChannelAdapterRegistry,
+    private readonly reconciliation: ReconciliationService,
   ) {}
 
   readonly tasks: Task[] = [
@@ -48,7 +50,8 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     { name: 'expire-pending-holds', everyMs: 60_000, run: () => this.reservations.expirePendingHolds().then(() => this.outbox.flush()) },
     { name: 'extend-inventory-horizon', everyMs: 6 * 3600_000, runAtStart: true, run: () => this.extendHorizons() },
     { name: 'checkin-reminders', everyMs: 3600_000, run: () => this.checkInReminders() },
-    { name: 'channel-reservation-pull', everyMs: 15 * 60_000, run: () => this.queueReservationPulls() },
+    { name: 'channel-reconciliation', everyMs: 6 * 3600_000, run: () => this.reconciliation.runDue() },
+    { name: 'channel-reservation-pull', everyMs: 60_000, run: () => this.queueReservationPulls() },
     // PostgreSQL has no TTL indexes: expired sessions, reset tokens and old logs are deleted here.
     { name: 'purge-expired', everyMs: 3600_000, runAtStart: true, run: () => this.purgeExpired() },
   ];
@@ -125,14 +128,34 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     return sent;
   }
 
-  /** Safety net for lost webhooks: poll each connected channel for recent reservations. */
+  /**
+   * Safety net for lost webhooks: poll each connected channel for recent reservations, each on ITS OWN interval (the connection's
+   * poll interval; built-in channels default to 15 minutes; a null interval means webhooks only). The claim is a single conditional
+   * UPDATE, so several scheduler instances cannot enqueue the same poll twice.
+   */
   async queueReservationPulls() {
-    const bucket = Math.floor(Date.now() / (15 * 60_000));
+    const now = Date.now();
     const available = new Set(this.channels.list().filter((a) => a.isAvailable()).map((a) => a.channel));
-    const conns = await this.db.selectFrom('channelConnections').select(['id', 'channel']).where('status', '=', ChannelConnectionStatus.CONNECTED).execute();
-    for (const c of conns.filter((x) => available.has(x.channel as never))) {
-      await this.producer.enqueue(QUEUES.RESERVATION_SYNC, 'pull', { kind: 'PULL', connectionId: c.id }, { jobId: `pull-${c.id}-${bucket}` });
+    const conns = await this.db.selectFrom('channelConnections').select(['id', 'channel', 'pollIntervalSeconds']).where('status', '=', ChannelConnectionStatus.CONNECTED).execute();
+    let queued = 0;
+    for (const c of conns) {
+      const builtIn = this.channels.isBuiltIn(c.channel);
+      if (builtIn && !available.has(c.channel)) continue;
+      if (!builtIn && !this.channels.providersEnabled) continue;
+      const intervalMs = (c.pollIntervalSeconds ?? (builtIn ? 900 : 0)) * 1000;
+      if (intervalMs <= 0) continue;
+      const claimed = await this.db
+        .updateTable('channelConnections')
+        .set({ lastPollAt: new Date(now) })
+        .where('id', '=', c.id)
+        .where((w) => w.or([w('lastPollAt', 'is', null), w('lastPollAt', '<=', new Date(now - intervalMs))]))
+        .returning('id')
+        .executeTakeFirst();
+      if (!claimed) continue;
+      await this.producer.enqueue(QUEUES.RESERVATION_SYNC, 'pull', { kind: 'PULL', connectionId: c.id }, { jobId: `pull-${c.id}-${now}` });
+      queued++;
     }
+    return queued;
   }
 
   /**

@@ -9,7 +9,7 @@ import { slugify } from '../../common/utils';
 import type { AppConfig } from '../../config/configuration';
 import { hashPassword, verifyPassword } from '../../database/common/crypto';
 import type { User } from '../../database/db-types';
-import { UserRole, UserStatus } from '../../database/enums';
+import { OrganizationStatus, UserRole, UserStatus } from '../../database/enums';
 import { ConflictError, DomainValidationError, UnauthorizedError } from '../../database/errors';
 import { Db, InjectDb, isUniqueViolation, runInTransaction } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
@@ -50,7 +50,18 @@ export class AuthService {
     try {
       user = await runInTransaction(this.db, async (tx) => {
         const slug = `${slugify(dto.organizationName) || 'org'}-${randomBytes(3).toString('hex')}`;
-        const org = await tx.insertInto('organizations').values({ name: dto.organizationName, slug }).returning('id').executeTakeFirstOrThrow();
+        // With approval required (the default) a new partner waits for a platform admin; otherwise registration is self-service.
+        const approvalRequired = this.config.get('partners', { infer: true }).approvalRequired;
+        const org = await tx
+          .insertInto('organizations')
+          .values({
+            name: dto.organizationName,
+            slug,
+            status: approvalRequired ? OrganizationStatus.PENDING_APPROVAL : OrganizationStatus.ACTIVE,
+            approvedAt: approvalRequired ? null : new Date(),
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
         return tx
           .insertInto('users')
           .values({ organizationId: org.id, name: dto.name, email, phone: dto.phone ?? null, passwordHash, role: UserRole.PROPERTY_OWNER, status: UserStatus.ACTIVE, lastLoginAt: null })
@@ -196,8 +207,9 @@ export class AuthService {
       .executeTakeFirstOrThrow();
     const claims: AccessTokenClaims = { sub: user.id, sid: session.id, org: user.organizationId, role: user.role };
     const accessToken = await this.jwt.signAsync(claims);
+    const org = user.organizationId ? await this.db.selectFrom('organizations').select('status').where('id', '=', user.organizationId).executeTakeFirst() : undefined;
     const { passwordHash: _omit, ...publicUser } = user;
-    return { accessToken, refreshToken, expiresIn: jwtCfg.accessTtlSeconds, user: toPublicUser(publicUser as PublicUser) };
+    return { accessToken, refreshToken, expiresIn: jwtCfg.accessTtlSeconds, user: { ...toPublicUser(publicUser as PublicUser), organizationStatus: (org?.status as OrganizationStatus | undefined) ?? null } };
   }
 
   /** Keyed hash: a leaked database alone cannot be used to forge or verify refresh tokens. */

@@ -19,25 +19,20 @@ export function day(n: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Real API login; returns the tokens the app would store. */
-export async function apiLogin(email = OWNER.email, password = OWNER.password) {
-  const res = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
-  if (!res.ok) throw new Error(`login failed: ${res.status}`);
-  const body = (await res.json()) as { data: { accessToken: string; refreshToken: string } };
-  return body.data;
+/**
+ * Starts the page already signed in (fast path for tests that are not about the login form). It signs in through the app's own
+ * session endpoint, exactly like the login form, so the browser receives the HttpOnly refresh-token cookie; the page then turns it
+ * into an in-memory access token on load. Nothing is written to localStorage.
+ */
+export async function signedIn(page: Page, email = OWNER.email, password = OWNER.password) {
+  const res = await page.request.post('/api/session/login', { headers: { 'x-tirvona-csrf': '1' }, data: { email, password } });
+  if (!res.ok()) throw new Error(`login failed: ${res.status()}`);
+  return (await res.json()).data as { accessToken: string; expiresIn: number };
 }
 
-/** Starts the page already signed in (fast path for tests that are not about the login form). */
-export async function signedIn(page: Page, patch: Partial<{ accessToken: string; refreshToken: string }> = {}) {
-  const t = { ...(await apiLogin()), ...patch };
-  await page.addInitScript(
-    ([at, rt]) => {
-      localStorage.setItem('tirvona_at', at);
-      localStorage.setItem('tirvona_rt', rt);
-    },
-    [t.accessToken, t.refreshToken]
-  );
-  return t;
+/** The refresh-token cookie as the browser holds it, or undefined. */
+export async function refreshCookie(page: Page) {
+  return (await page.context().cookies()).find((c) => /^(__Secure-)?tv_rt$/.test(c.name));
 }
 
 export async function signInThroughTheForm(page: Page) {

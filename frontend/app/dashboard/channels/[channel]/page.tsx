@@ -12,6 +12,7 @@ import { Alert } from '@/components/ui/alert';
 import { EmptyState, ErrorState, NoPropertyState, QueryState } from '@/components/ui/query-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ChannelMappingModal } from '@/components/channels/ChannelMappingModal';
+import { ConfiguredProviderPanel } from '@/components/channels/ConfiguredProviderPanel';
 import { useProperty } from '@/lib/auth/property-context';
 import { describeError, errorMessage } from '@/lib/utils/errors';
 import { getChannelBadge, getChannelConnectionBadge } from '@/lib/utils/formatters';
@@ -27,7 +28,7 @@ export default function ChannelDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const rawChannel = (params?.channel as string) || '';
-  const channelCode = rawChannel.toUpperCase().replace('-', '_');
+  const channelCode = rawChannel.toUpperCase().replace(/-/g, '_');
   const { activeProperty, error: propertyError, reloadProperties, isLoading: propertyLoading } = useProperty();
   const propertyId = activeProperty?._id;
   const queryClient = useQueryClient();
@@ -142,7 +143,7 @@ export default function ChannelDetailPage() {
                   {usable && (
                     <div className="flex items-center gap-2">
                       {!isConnected ? (
-                        <Button isLoading={connect.isPending} disabled={connect.isPending} onClick={() => connect.mutate()} className="font-semibold">
+                        info?.configured ? null : <Button isLoading={connect.isPending} disabled={connect.isPending} onClick={() => connect.mutate()} className="font-semibold">
                           <Radio className="h-4 w-4 mr-1.5" /> Connect {info?.name}
                         </Button>
                       ) : (
@@ -177,7 +178,9 @@ export default function ChannelDetailPage() {
               />
             )}
 
-            {usable && !isConnected && (
+            {usable && info?.configured && <ConfiguredProviderPanel propertyId={propertyId} channel={channelCode} connected={isConnected} />}
+
+            {usable && !isConnected && !info?.configured && (
               <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center space-y-3 bg-white dark:bg-slate-900">
                 <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">{info?.name} is not connected</h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">Authorize Tirvona on the channel&apos;s own consent screen. You never enter API keys here.</p>

@@ -2,6 +2,7 @@ import type { Insertable, Selectable } from 'kysely';
 import { sql } from 'kysely';
 import type { NightlyRate, RatePlanSnapshot, ReservationsTable } from './db-types';
 import { Db, j } from './kysely';
+import { GLOBAL_EXTERNAL_SCOPE } from './enums';
 
 /**
  * A reservation is an aggregate: one `reservations` row plus its `reservation_rooms` lines. Services work with the
@@ -38,7 +39,11 @@ export interface ReservationFilter {
   reservationCode?: string;
   source?: string;
   externalReservationId?: string;
+  /** Connection scope of the external id (see migration 0003); defaults to the global scope. */
+  externalScope?: string;
   idempotencyKey?: string;
+  /** The partner software's own reference (unique per property). */
+  partnerReference?: string;
 }
 
 /** Loads the lines of many reservations in one query and assembles the aggregates (input order is kept). */
@@ -82,8 +87,9 @@ export async function findReservation(q: Db, f: ReservationFilter, opts: { forUp
   if (f.propertyId) query = query.where('propertyId', '=', f.propertyId);
   if (f.reservationCode) query = query.where('reservationCode', '=', f.reservationCode.toUpperCase());
   if (f.source) query = query.where('source', '=', f.source);
-  if (f.externalReservationId) query = query.where('externalReservationId', '=', f.externalReservationId);
+  if (f.externalReservationId) query = query.where('externalReservationId', '=', f.externalReservationId).where('externalScope', '=', f.externalScope ?? GLOBAL_EXTERNAL_SCOPE);
   if (f.idempotencyKey) query = query.where('idempotencyKey', '=', f.idempotencyKey);
+  if (f.partnerReference) query = query.where('partnerReference', '=', f.partnerReference);
   if (opts.forUpdate) query = query.forUpdate();
   const row = await query.limit(1).executeTakeFirst();
   if (!row) return null;

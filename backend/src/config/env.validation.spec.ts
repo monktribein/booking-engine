@@ -65,3 +65,13 @@ describe('validateEnv (production fail-fast)', () => {
     expect(errorsOf({ ...dev, BOOKING_ENGINE_REQUIRE_PAYMENT: 'false' })).toEqual([]);
   });
 });
+
+describe('validateEnv numeric tuning variables', () => {
+  it.each(['API_KEY_RATE_LIMIT', 'API_KEY_RATE_TTL_MS', 'WEBHOOK_TIMEOUT_MS'])('accepts a normal value for %s and rejects junk', (key) => {
+    expect(errorsOf({ ...good, [key]: '300' })).toEqual([]);
+    expect(errorsOf({ ...good, [key]: '60000' })).toEqual([]);
+    expect(errorsOf({ ...good, [key]: '0' }).join()).toContain(key);
+    expect(errorsOf({ ...good, [key]: 'abc' }).join()).toContain(key);
+    expect(errorsOf({ ...good, [key]: '-5' }).join()).toContain(key);
+  });
+});

@@ -15,6 +15,8 @@
     "test:e2e": "jest test",
     "db:migrate": "node dist/scripts/db-migrate.js",
     "db:migrate:dev": "tsx scripts/db-migrate.ts",
+    "admin:create": "node dist/scripts/create-admin.js",
+    "admin:create:dev": "tsx scripts/create-admin.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:reset": "tsx scripts/seed.ts --reset",
     "db:verify": "tsx scripts/verify.ts",

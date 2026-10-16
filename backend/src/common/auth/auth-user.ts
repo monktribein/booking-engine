@@ -1,9 +1,11 @@
-import type { PropertyUserRole, UserRole } from '../../database/enums';
+import type { OrganizationStatus, PropertyUserRole, UserRole } from '../../database/enums';
 
 /** The authenticated principal attached to `req.user` by JwtAuthGuard. Ids are uuid strings. */
 export interface AuthUser {
   userId: string;
   organizationId: string | null;
+  /** Null for platform staff, who belong to no organization. */
+  organizationStatus: OrganizationStatus | null;
   role: UserRole;
   sessionId: string;
   email: string;

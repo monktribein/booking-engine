@@ -64,12 +64,13 @@ export class ReservationSyncHandler implements JobHandler<'reservation-sync'>, O
       case 'PULL':
         return this.sync.pullReservations(d.connectionId, async (channel, events) => {
           let fresh = 0;
-          for (const e of events as { externalReservationId: string; kind: string; checkIn: string; checkOut: string }[]) {
-            // Same inbox and idempotency as pushed webhooks. The event id encodes the booking's state.
+          for (const e of events) {
+            // Same inbox and idempotency as pushed webhooks. The event id encodes the booking's state (the provider's own revision when it has one).
             const res = await this.webhooks.ingest({
-              channel: channel as never,
+              channel,
+              externalScope: e.externalScope,
               eventType: `poll.${e.kind.toLowerCase()}`,
-              externalEventId: `poll:${e.externalReservationId}:${e.kind}:${e.checkIn}:${e.checkOut}`,
+              externalEventId: `poll:${e.externalReservationId}:${e.kind}:${e.revision ?? `${e.checkIn}:${e.checkOut}`}`,
               payload: { polled: true, reservation: e },
               signatureValid: true,
             });

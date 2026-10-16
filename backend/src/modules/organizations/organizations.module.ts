@@ -2,7 +2,7 @@ import { Body, Controller, Get, Injectable, Module, Patch } from '@nestjs/common
 import { ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, Length } from 'class-validator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
-import { CurrentUser, ReqMeta, Roles } from '../../common/decorators';
+import { AllowInactiveOrg, CurrentUser, ReqMeta, Roles } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
 import { OrganizationStatus, UserRole } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
@@ -49,6 +49,7 @@ export class OrganizationsController {
   constructor(private readonly orgs: OrganizationsService) {}
 
   @Get('me')
+  @AllowInactiveOrg()
   @ApiOperation({ summary: "The signed-in user's organization" })
   @ApiEnvelope(OrganizationDto)
   @ApiStandardErrors({ notFound: true })

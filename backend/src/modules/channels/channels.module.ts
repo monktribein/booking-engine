@@ -24,6 +24,12 @@ import {
   SyncTriggerResultDto,
 } from './channels.dto';
 import { ChannelsService } from './channels.service';
+import { ConnectionSecretsService } from './providers/connection-secrets.service';
+import { ProviderConnectionService } from './providers/provider-connection.service';
+import { ProviderService } from './providers/provider.service';
+import { ProviderAdminController, ProviderCatalogueController, ProviderConnectionsController, ReconciliationController } from './providers/providers.controller';
+import { IcalExportService, IcalFeedsController, IcalPublicController } from './providers/ical-export';
+import { ReconciliationService } from './providers/reconciliation.service';
 import { MOCK_AUTH_CODE, MockChannelAdapter, MockChannelStore } from './mock/mock-channel.adapter';
 
 const CHANNEL_PARAM = { name: 'channel', enum: [ChannelCode.AIRBNB, ChannelCode.BOOKING_COM, ChannelCode.AGODA, ChannelCode.MOCK] };
@@ -158,8 +164,8 @@ export class ChannelOAuthController {
 }
 
 @Module({
-  controllers: [ChannelsController, ChannelOAuthController],
-  providers: [ChannelsService, ChannelAdapterRegistry, AirbnbAdapter, BookingComAdapter, AgodaAdapter, MockChannelAdapter, MockChannelStore],
-  exports: [ChannelsService, ChannelAdapterRegistry, MockChannelAdapter, MockChannelStore],
+  controllers: [ChannelsController, ChannelOAuthController, ProviderCatalogueController, ProviderConnectionsController, ProviderAdminController, ReconciliationController, IcalFeedsController, IcalPublicController],
+  providers: [ChannelsService, ChannelAdapterRegistry, AirbnbAdapter, BookingComAdapter, AgodaAdapter, MockChannelAdapter, MockChannelStore, ConnectionSecretsService, ProviderService, ProviderConnectionService, ReconciliationService, IcalExportService],
+  exports: [ChannelsService, ChannelAdapterRegistry, MockChannelAdapter, MockChannelStore, ConnectionSecretsService, ProviderService, ProviderConnectionService, ReconciliationService],
 })
 export class ChannelsModule {}

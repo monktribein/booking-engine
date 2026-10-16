@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Injectable, Module, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Injectable, Module, Param, Post, Query } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiHeader, ApiOperation, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -22,13 +22,14 @@ import {
 import type { RequestMeta } from '../../common/auth/auth-user';
 import { Public, ReqMeta } from '../../common/decorators';
 import { IsDateOnly } from '../../common/dto';
+import { PARTNER_OPERABLE, PUBLICLY_BOOKABLE } from '../../common/public-visibility';
 import { ApiEnvelope, ApiStandardErrors } from '../../common/swagger';
 import { toUuid } from '../../common/utils';
 import type { AppConfig } from '../../config/configuration';
-import { toDateOnly } from '../../database/common/dates';
+import { formatDateOnly, todayIn, toDateOnly } from '../../database/common/dates';
 import { percentOf } from '../../database/common/money';
-import { PaymentProvider, PaymentStatus, PropertyStatus, RatePlanStatus, ReservationSource, ReservationStatus, RoomTypeStatus } from '../../database/enums';
-import { DomainValidationError, NotFoundError } from '../../database/errors';
+import { PaymentProvider, PaymentStatus, PropertyStatus, RatePlanStatus, ReservationSource, ReservationStatus, RoomTypeStatus, MarketplaceStatus } from '../../database/enums';
+import { DomainError, DomainValidationError, NotFoundError } from '../../database/errors';
 import { Db, InjectDb } from '../../database/kysely';
 import { Reservation, findReservation } from '../../database/reservation-store';
 import { AvailabilityService } from '../../database/services/availability.service';
@@ -113,7 +114,18 @@ export class PublicPropertyDto {
   @ApiProperty({ type: [PublicRoomTypeDto] }) roomTypes!: PublicRoomTypeDto[];
 }
 
+export class GuestCancellationDto {
+  @ApiProperty({ description: 'Whether the guest can cancel this booking online right now' }) allowed!: boolean;
+  @ApiPropertyOptional({ nullable: true, description: 'Why not, when allowed is false' }) reason!: string | null;
+  @ApiProperty({ description: 'Minor units refunded if cancelled now, under the cancellation policy of the rate that was booked' }) refundIfCancelledNow!: number;
+}
+
+export class GuestCancelDto {
+  @ApiProperty({ example: 'emma@example.com', description: 'The e-mail the booking was made with' }) @IsEmail() email!: string;
+}
+
 export class PublicReservationViewDto {
+  @ApiPropertyOptional({ type: GuestCancellationDto, description: 'Present on lookups' }) cancellation?: GuestCancellationDto;
   @ApiProperty() reservationCode!: string;
   @ApiProperty() status!: string;
   @ApiProperty() propertyName!: string;
@@ -145,6 +157,9 @@ export interface BookingContext {
   organizationId?: string;
   source?: ReservationSource;
   channel?: string;
+  /** Public API: which key made the booking, and the partner software's own reference for it. */
+  apiKeyId?: string;
+  partnerReference?: string;
 }
 
 // ------------------------------------------------------------------ service
@@ -166,7 +181,9 @@ export class BookingEngineService {
   ) {}
 
   private async propertyBySlug(slug: string, organizationId?: string) {
-    let q = this.db.selectFrom('properties').selectAll().where('slug', '=', slug).where('status', '=', PropertyStatus.ACTIVE);
+    // Public visitors only reach what the owner published and the platform allows; a partner's own API key reaches its own
+    // properties whenever the organization is approved and the property is active.
+    let q = this.db.selectFrom('properties').selectAll().where('slug', '=', slug).where(organizationId ? PARTNER_OPERABLE : PUBLICLY_BOOKABLE);
     if (organizationId) q = q.where('organizationId', '=', organizationId);
     const p = await q.executeTakeFirst();
     if (!p) throw new NotFoundError('Property', slug);
@@ -255,8 +272,12 @@ export class BookingEngineService {
     }
     const { reservation, created } = await this.reservations.createReservation({
       propertyId: p.id,
-      source: ctx.source ?? (dto.source === 'TIRVONA' ? ReservationSource.TIRVONA : ReservationSource.DIRECT),
+      // A booking counts as a Tirvona marketplace booking only for a property that is actually approved there; everything else
+      // that comes through the public website is a direct booking.
+      source: ctx.source ?? (dto.source === 'TIRVONA' && p.marketplaceStatus === MarketplaceStatus.APPROVED ? ReservationSource.TIRVONA : ReservationSource.DIRECT),
       idempotencyKey,
+      apiKeyId: ctx.apiKeyId ?? null,
+      partnerReference: ctx.partnerReference,
       // With online payment the booking is a PENDING hold until the payment is captured.
       status: requirePayment ? ReservationStatus.PENDING : ReservationStatus.CONFIRMED,
       guest: dto.guest,
@@ -267,7 +288,7 @@ export class BookingEngineService {
       rooms,
       discount,
       specialRequests: dto.specialRequests,
-      auditMetadata: { channel: ctx.channel ?? 'booking-engine', promoCode: dto.promoCode, ip: meta.ip },
+      auditMetadata: { channel: ctx.channel ?? 'booking-engine', promoCode: dto.promoCode, ip: meta.ip, ...(ctx.apiKeyId ? { apiKeyId: ctx.apiKeyId } : {}) },
     });
     void this.outbox.flush();
 
@@ -292,10 +313,47 @@ export class BookingEngineService {
 
   /** Guests look up their booking with the code plus the email used to book. */
   async lookup(code: string, email: string) {
+    const { r, p } = await this.ownBooking(code, email);
+    return { ...this.publicView(r, p.name), cancellation: this.cancellationOf(r, p) };
+  }
+
+  /**
+   * Guests cancel online only bookings made on the public site (DIRECT or marketplace): partner software cancels its own through the
+   * API and a channel cancels its own. Allowed while the booking is PENDING or CONFIRMED and the stay has not started. The refund
+   * follows the cancellation policy that was frozen on the booking, exactly as for a cancellation by staff.
+   */
+  async cancel(code: string, email: string, meta: RequestMeta) {
+    const { r, p } = await this.ownBooking(code, email);
+    const verdict = this.cancellationOf(r, p);
+    if (!verdict.allowed && r.status !== ReservationStatus.CANCELLED) throw new DomainError('CANCELLATION_NOT_ALLOWED', verdict.reason ?? 'This booking cannot be cancelled online.');
+    const res = await this.reservations.cancelReservation({ propertyId: r.propertyId, reservationId: r.id, reason: 'Cancelled by the guest', cancelledBy: null });
+    void this.outbox.flush();
+    void meta;
+    const after = { ...res.reservation };
+    return {
+      reservation: { ...this.publicView(after, p.name), cancellation: { allowed: false, reason: 'This booking is cancelled.', refundIfCancelledNow: 0 } },
+      alreadyCancelled: res.alreadyCancelled,
+      refunds: res.refunds.map((x) => ({ amount: x.amount, currency: x.currency, status: x.status })),
+    };
+  }
+
+  /** The booking for this code, only if the e-mail matches (the same 404 as an unknown code: nothing is revealed). */
+  private async ownBooking(code: string, email: string) {
     const r = await findReservation(this.db, { reservationCode: code });
     if (!r || !r.guest.email || r.guest.email !== email.trim().toLowerCase()) throw new NotFoundError('Reservation', code);
-    const p = await this.db.selectFrom('properties').select('name').where('id', '=', r.propertyId).executeTakeFirst();
-    return this.publicView(r, p?.name ?? '');
+    const p = await this.db.selectFrom('properties').select(['name', 'checkInTime', 'timezone']).where('id', '=', r.propertyId).executeTakeFirstOrThrow();
+    return { r, p };
+  }
+
+  private cancellationOf(r: Reservation, p: { checkInTime: string; timezone: string }) {
+    const fromPublicSite = r.source === ReservationSource.DIRECT || r.source === ReservationSource.TIRVONA;
+    const open = r.status === ReservationStatus.PENDING || r.status === ReservationStatus.CONFIRMED;
+    const started = r.checkIn.getTime() < toDateOnly(formatDateOnly(todayIn(p.timezone))).getTime();
+    let reason: string | null = null;
+    if (!fromPublicSite) reason = 'This booking was not made on this site. Contact the property or the platform where you booked.';
+    else if (!open) reason = r.status === ReservationStatus.CANCELLED ? 'This booking is already cancelled.' : 'This booking can no longer be cancelled online.';
+    else if (started) reason = 'The stay has already started. Contact the property.';
+    return { allowed: reason === null, reason, refundIfCancelledNow: open && fromPublicSite && !started ? this.reservations.policyRefund(r, p, new Date()) : 0 };
   }
 
   private publicView(r: Reservation, propertyName: string) {
@@ -373,6 +431,18 @@ export class BookingEngineController {
       throw new DomainValidationError('Idempotency-Key must be 8-100 characters of [A-Za-z0-9_-]');
     }
     return this.engine.book(dto, idempotencyKey, meta);
+  }
+
+  @Post('reservations/:code/cancel')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Guest cancels their own booking (code + booking email)',
+    description: 'Only bookings made on the public site, while PENDING or CONFIRMED and before the stay starts. The refund follows the cancellation policy of the rate that was booked.',
+  })
+  @ApiStandardErrors({ auth: false, notFound: true, conflict: 'CANCELLATION_NOT_ALLOWED' })
+  cancel(@Param('code') code: string, @Body() dto: GuestCancelDto, @ReqMeta() meta: RequestMeta) {
+    return this.engine.cancel(code, dto.email, meta);
   }
 
   @Get('reservations/:code')

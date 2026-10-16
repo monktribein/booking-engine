@@ -3,14 +3,16 @@ import { randomBytes } from 'node:crypto';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { hashPassword } from '../../database/common/crypto';
 import type { User } from '../../database/db-types';
-import { PropertyUserRole, UserStatus } from '../../database/enums';
+import type { OrganizationStatus } from '../../database/enums';
+import { PropertyUserRole, UserRole, UserStatus } from '../../database/enums';
 import { ConflictError, DomainValidationError, NotFoundError } from '../../database/errors';
 import { Db, InjectDb, isUniqueViolation, runInTransaction } from '../../database/kysely';
 import { AuditLogger } from '../audit/audit.logger';
-import type { AddStaffDto, UpdateMeDto } from './dto/user.dto';
+import type { AddStaffDto, InviteDeveloperDto, UpdateMeDto } from './dto/user.dto';
 import { PasswordResetService } from './password-reset.service';
 
-export type PublicUser = Omit<User, 'passwordHash'>;
+/** The signed-in user as the API returns it: never the password hash, plus the partner's approval state for the UI banner. */
+export type PublicUser = Omit<User, 'passwordHash'> & { organizationStatus?: OrganizationStatus | null };
 
 export function toPublicUser(u: User | PublicUser): PublicUser {
   const { passwordHash: _omit, ...rest } = u as User;
@@ -29,9 +31,26 @@ export class UsersService {
   ) {}
 
   async me(userId: string): Promise<PublicUser> {
-    const u = await this.db.selectFrom('users').select(PUBLIC_USER_COLUMNS).where('id', '=', userId).executeTakeFirst();
+    const u = await this.db
+      .selectFrom('users')
+      .leftJoin('organizations', 'organizations.id', 'users.organizationId')
+      .select([
+        'users.id',
+        'users.organizationId',
+        'users.name',
+        'users.email',
+        'users.phone',
+        'users.role',
+        'users.status',
+        'users.lastLoginAt',
+        'users.createdAt',
+        'users.updatedAt',
+        'organizations.status as organizationStatus',
+      ])
+      .where('users.id', '=', userId)
+      .executeTakeFirst();
     if (!u) throw new NotFoundError('User', userId);
-    return u;
+    return u as PublicUser;
   }
 
   async updateMe(user: AuthUser, dto: UpdateMeDto): Promise<PublicUser> {
@@ -87,6 +106,54 @@ export class UsersService {
     }
     await this.audit.log({ user: actor, meta }, { action: 'property.staff_add', entityType: 'Property', entityId: propertyId, propertyId, after: { userId: user.id, role: dto.role } });
     return { userId: user.id, name: user.name, email: user.email, status: user.status, role: dto.role };
+  }
+
+  /** Everyone in the caller's organization. Never returns the password hash. */
+  async listMembers(actor: AuthUser) {
+    if (!actor.organizationId) return [];
+    return this.db
+      .selectFrom('users')
+      .select(['id', 'name', 'email', 'role', 'status', 'lastLoginAt'])
+      .where('organizationId', '=', actor.organizationId)
+      .orderBy('role')
+      .orderBy('name')
+      .execute();
+  }
+
+  /** A developer belongs to the organization, not to a property: API keys and webhooks only. */
+  async inviteDeveloper(actor: AuthUser, meta: RequestMeta, dto: InviteDeveloperDto) {
+    if (!actor.organizationId) throw new DomainValidationError('This account has no organization');
+    const email = dto.email.trim().toLowerCase();
+    const passwordHash = await hashPassword(randomBytes(24).toString('base64url'));
+    let user;
+    try {
+      user = await this.db
+        .insertInto('users')
+        .values({ organizationId: actor.organizationId, name: dto.name.trim(), email, phone: null, passwordHash, role: UserRole.DEVELOPER, status: UserStatus.INVITED, lastLoginAt: null })
+        .returning(['id', 'name', 'email', 'role', 'status', 'lastLoginAt'])
+        .executeTakeFirstOrThrow();
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new ConflictError('EMAIL_TAKEN', 'This email is already registered');
+      throw err;
+    }
+    await this.resets.issue(user, 'INVITE');
+    await this.audit.log({ user: actor, meta }, { action: 'organization.developer_invite', entityType: 'User', entityId: user.id, after: { role: UserRole.DEVELOPER } });
+    return user;
+  }
+
+  async removeDeveloper(actor: AuthUser, meta: RequestMeta, userId: string) {
+    const res = await this.db
+      .updateTable('users')
+      .set({ status: UserStatus.DISABLED })
+      .where('id', '=', userId)
+      .where('organizationId', '=', actor.organizationId ?? '00000000-0000-0000-0000-000000000000')
+      .where('role', '=', UserRole.DEVELOPER)
+      .returning('id')
+      .executeTakeFirst();
+    if (!res) throw new NotFoundError('Developer', userId);
+    await this.db.updateTable('authSessions').set({ revokedAt: new Date(), revokedReason: 'access_removed' }).where('userId', '=', userId).where('revokedAt', 'is', null).execute();
+    await this.audit.log({ user: actor, meta }, { action: 'organization.developer_remove', entityType: 'User', entityId: userId });
+    return { ok: true };
   }
 
   async removeStaff(actor: AuthUser, meta: RequestMeta, propertyId: string, userId: string) {

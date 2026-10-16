@@ -1,6 +1,14 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export type TirvonaEventType = 'reservation.created' | 'reservation.confirmed' | 'reservation.cancelled' | 'payment.succeeded' | 'payment.failed' | 'ping';
+export type TirvonaEventType =
+  | 'reservation.created'
+  | 'reservation.confirmed'
+  | 'reservation.updated'
+  | 'reservation.cancelled'
+  | 'payment.succeeded'
+  | 'payment.failed'
+  | 'inventory.updated'
+  | 'ping';
 
 export interface TirvonaEvent<D = Record<string, any>> {
   /** Stable across retries: deduplicate on it. */

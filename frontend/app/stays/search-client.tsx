@@ -141,7 +141,8 @@ export function StaysSearchClient() {
     apply();
   };
 
-  const stayQuery = params.checkIn && params.checkOut ? `?${new URLSearchParams({ checkIn: params.checkIn, checkOut: params.checkOut, adults: String(params.adults ?? 2) })}` : '';
+  // `via=tirvona` marks a booking that started in marketplace search, so it is attributed to the marketplace (the server only honours it for approved listings).
+  const stayQuery = `?${new URLSearchParams({ ...(params.checkIn && params.checkOut ? { checkIn: params.checkIn, checkOut: params.checkOut, adults: String(params.adults ?? 2) } : {}), via: 'tirvona' })}`;
   const page = params.page ?? 1;
   const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / PAGE_SIZE)) : 1;
 

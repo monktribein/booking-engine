@@ -34,6 +34,20 @@ export class AddStaffDto {
   phone?: string;
 }
 
+export class InviteDeveloperDto {
+  @ApiProperty() @IsEmail() email!: string;
+  @ApiProperty() @IsString() @Length(1, 120) name!: string;
+}
+
+export class OrganizationMemberDto {
+  @ApiProperty() _id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() email!: string;
+  @ApiProperty({ enum: UserRole }) role!: UserRole;
+  @ApiProperty({ enum: UserStatus }) status!: UserStatus;
+  @ApiPropertyOptional() lastLoginAt?: string;
+}
+
 export class UpdateMeDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 120) name?: string;
   @ApiPropertyOptional() @IsOptional() @Matches(/^\+[1-9]\d{6,14}$/, { message: 'phone must be E.164' }) phone?: string;

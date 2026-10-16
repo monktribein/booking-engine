@@ -48,7 +48,7 @@ describe('stays search page', () => {
     const m = mockFetch(() => ok(page([item()])));
     mount();
     const card = await screen.findByRole('link', { name: /Radha Ashram/ });
-    expect(card).toHaveAttribute('href', '/stays/radha-ashram');
+    expect(card).toHaveAttribute('href', '/stays/radha-ashram?via=tirvona');
     expect(within(card).getByText(/₹3,500/)).toBeInTheDocument();
     expect(within(card).getByText('Vrindavan, Uttar Pradesh')).toBeInTheDocument();
     expect(screen.getByText('1 stay found')).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('stays search page', () => {
     const card = await screen.findByRole('link', { name: /Radha Ashram/ });
     const u = lastUrl(m);
     expect(Object.fromEntries(u.searchParams)).toMatchObject({ q: 'vrindavan', checkIn: '2026-11-05', checkOut: '2026-11-07', adults: '3', minPrice: '100000', maxPrice: '500000', amenities: 'wifi,pool', sort: 'price_asc' });
-    expect(card).toHaveAttribute('href', '/stays/radha-ashram?checkIn=2026-11-05&checkOut=2026-11-07&adults=3');
+    expect(card).toHaveAttribute('href', '/stays/radha-ashram?checkIn=2026-11-05&checkOut=2026-11-07&adults=3&via=tirvona');
     expect(within(card).getByText(/₹3,600/)).toBeInTheDocument(); // the stay's price, not the list price
     expect(within(card).getByText(/₹7,560 total/)).toBeInTheDocument();
     expect(card).toHaveTextContent('for 2 nights, taxes incl.');

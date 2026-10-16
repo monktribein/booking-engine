@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { addDays, eachNight, formatDateOnly, todayIn } from '../../database/common/dates';
+import { redactText } from '../channels/providers/provider-engine';
+import { j } from '../../database/kysely';
+import type { NormalizedReservationEvent } from '../../database/services/webhook.service';
 import { ChannelCode, ChannelConnectionStatus, MappingStatus, SyncJobType, SyncLogStatus } from '../../database/enums';
 import { ChannelError } from '../../database/errors';
 import type { SyncJob } from '../../database/db-types';
@@ -23,6 +26,8 @@ import type { AvailabilityUpdate, PushResult, RateUpdate, RestrictionUpdate } fr
  * exponential backoff by the queue, and after the last attempt it is marked
  * FAILED and staff are alerted.
  */
+const POLL_OVERLAP_MS = 10 * 60_000;
+
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
@@ -51,7 +56,14 @@ export class SyncService {
         await this.syncJobs.complete(job.id, workerId);
         return { status: 'SKIPPED_MOCK_CONNECTION' };
       }
-      const adapter = this.registry.get(job.channel);
+      const adapter = await this.registry.forProperty(job.propertyId, job.channel);
+      const needed = ({ [SyncJobType.INVENTORY]: 'pushAvailability', [SyncJobType.RATES]: 'pushRates', [SyncJobType.RESTRICTIONS]: 'pushRestrictions', [SyncJobType.LISTING]: 'listings' } as Record<string, string>)[job.type];
+      if (needed && adapter.supports && !adapter.supports(needed)) {
+        // The provider does not offer this operation: record it as skipped, never as pushed.
+        await this.syncJobs.log({ propertyId: job.propertyId, channel: job.channel, syncJobId: job.id, action: `push_${job.type.toLowerCase()}`, status: SyncLogStatus.SUCCESS, requestMetadata: { skipped: true }, responseMetadata: { skipped: `${adapter.displayName} does not support ${needed}` }, duration: 0 });
+        await this.syncJobs.complete(job.id, workerId);
+        return { status: 'SKIPPED_UNSUPPORTED_BY_PROVIDER' };
+      }
       const { creds } = await this.channels.credentials(job.propertyId, adapter);
 
       let result: PushResult = { accepted: 0, rejected: 0 };
@@ -242,7 +254,8 @@ export class SyncService {
 
   /** Confirm receipt of an imported booking to the channel (required by some OTAs). */
   async acknowledge(propertyId: string, channel: string, externalReservationId: string, ctx: JobContext): Promise<void> {
-    const adapter = this.registry.get(channel);
+    const adapter = await this.registry.forProperty(propertyId, channel);
+    if (adapter.supports && !adapter.supports('ackReservation')) return; // the provider has no acknowledgement step
     try {
       const { creds } = await this.channels.credentials(propertyId, adapter);
       await adapter.acknowledgeReservation(creds, externalReservationId);
@@ -252,16 +265,125 @@ export class SyncService {
     }
   }
 
-  /** Safety net for missed webhooks: fetch recent reservations and feed them through the webhook inbox. */
-  async pullReservations(connectionId: string, ingest: (channel: string, events: unknown[]) => Promise<number>): Promise<number> {
-    const conn = await this.db.selectFrom('channelConnections').select(['propertyId', 'channel', 'status']).where('id', '=', connectionId).executeTakeFirst();
+  /**
+   * Safety net for missed webhooks, per connection. A configured provider is read incrementally from a persisted cursor (with an
+   * overlap window, so a late-arriving change is fetched twice rather than never; the inbox dedupes the repeat). The cursor moves
+   * only AFTER the events are durably stored, so a failure anywhere leaves it where it was and the next poll retries the same window.
+   *
+   * Adapters that return the complete current state (an iCal feed has no "changed since") also list every id they contain
+   * (`presentExternalIds`). For those, an event is ingested only if it differs from what we hold, and a booking that has vanished
+   * from the feed is cancelled, but only when the feed was read completely and the removal is not suspiciously large.
+   */
+  async pullReservations(connectionId: string, ingest: (channel: string, events: NormalizedReservationEvent[]) => Promise<number>): Promise<number> {
+    const conn = await this.db.selectFrom('channelConnections').selectAll().where('id', '=', connectionId).executeTakeFirst();
     if (!conn || conn.status !== ChannelConnectionStatus.CONNECTED) return 0;
-    const adapter = this.registry.get(conn.channel);
+    const startedAt = new Date();
     try {
+      const adapter = await this.registry.forConnection(conn);
+      if (adapter.supports && !adapter.supports('pullReservations')) return 0; // webhook-only provider
       const { creds } = await this.channels.credentials(conn.propertyId, adapter);
-      const events = await adapter.getReservations(creds, { since: new Date(Date.now() - 2 * 86_400_000) });
-      return ingest(conn.channel, events);
+      const cursor = (conn.pollCursor as { updatedSince?: string } | null)?.updatedSince;
+      const since = cursor && !Number.isNaN(Date.parse(cursor)) ? new Date(Date.parse(cursor) - POLL_OVERLAP_MS) : new Date(startedAt.getTime() - 2 * 86_400_000);
+      type Pull = { events: NormalizedReservationEvent[]; newestUpdatedAt?: string; skipped: { externalReservationId?: string; reason: string }[]; presentExternalIds?: string[] };
+      let pull: Pull;
+      if (typeof (adapter as { pullReservations?: unknown }).pullReservations === 'function') {
+        pull = await (adapter as unknown as { pullReservations(since: Date): Promise<Pull> }).pullReservations(since);
+      } else {
+        pull = { events: await adapter.getReservations(creds, { since }), skipped: [] };
+      }
+      const isConfigured = !this.registry.isBuiltIn(conn.channel);
+      const skipped = [...pull.skipped];
+      let events = pull.events;
+
+      if (isConfigured) {
+        // Stays that are over, or further out than the sellable horizon, cannot be booked into inventory: report, do not fail.
+        const property = await this.db.selectFrom('properties').select(['timezone', 'bookingHorizonDays']).where('id', '=', conn.propertyId).executeTakeFirstOrThrow();
+        const today = formatDateOnly(todayIn(property.timezone));
+        const last = formatDateOnly(addDays(todayIn(property.timezone), property.bookingHorizonDays));
+        events = events.filter((e) => {
+          if (e.checkOut <= today) return false; // already over: nothing to hold
+          if (e.checkIn > last) {
+            skipped.push({ externalReservationId: e.externalReservationId, reason: `starts after the sellable horizon (${last}); it is picked up once the horizon reaches it` });
+            return false;
+          }
+          return true;
+        });
+      }
+
+      let removed: NormalizedReservationEvent[] = [];
+      if (pull.presentExternalIds) {
+        const present = new Set(pull.presentExternalIds);
+        const local = await this.db
+          .selectFrom('reservations')
+          .select(['id', 'externalReservationId', 'status', 'checkIn', 'checkOut', 'updatedAt'])
+          .where('propertyId', '=', conn.propertyId)
+          .where('source', '=', conn.channel)
+          .where('externalScope', '=', conn.id)
+          .where('externalReservationId', 'is not', null)
+          .execute();
+        const byExt = new Map(local.map((l) => [l.externalReservationId as string, l]));
+        const ymd = (d: Date | string) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+        const changed: NormalizedReservationEvent[] = [];
+        for (const e of events) {
+          const l = byExt.get(e.externalReservationId);
+          const active = l && (l.status === 'PENDING' || l.status === 'CONFIRMED' || l.status === 'CHECKED_IN');
+          if (e.kind === 'RESERVATION_CANCELLED') {
+            if (!active) continue; // already cancelled or never held
+          } else if (l && !active) {
+            skipped.push({ externalReservationId: e.externalReservationId, reason: 'it was cancelled here earlier and has reappeared in the feed; review it manually' });
+            continue;
+          } else if (l && ymd(l.checkIn) === e.checkIn && ymd(l.checkOut) === e.checkOut) continue; // identical to what we hold
+          changed.push({ ...e, revision: `${e.revision ?? ''}:${l ? l.updatedAt.getTime() : 0}` }); // a new id per state transition
+        }
+        events = changed;
+        // Removals: held, in the future, and no longer in the (completely read) feed.
+        const todayStr = formatDateOnly(todayIn((await this.db.selectFrom('properties').select('timezone').where('id', '=', conn.propertyId).executeTakeFirstOrThrow()).timezone));
+        const heldFuture = local.filter((l) => (l.status === 'PENDING' || l.status === 'CONFIRMED') && ymd(l.checkOut) > todayStr);
+        const gone = heldFuture.filter((l) => !present.has(l.externalReservationId as string));
+        if (gone.length) {
+          if (gone.length > Math.max(2, Math.ceil(heldFuture.length * 0.5))) {
+            skipped.push({ reason: `${gone.length} of ${heldFuture.length} held calendar blocks are missing from the feed; not cancelling them automatically (the feed may be incomplete). Review the calendar.` });
+          } else {
+            removed = gone.map((l) => ({
+              kind: 'RESERVATION_CANCELLED' as const,
+              channel: conn.channel,
+              externalScope: conn.id,
+              revision: `removed:${l.updatedAt.getTime()}`,
+              externalListingId: '',
+              externalReservationId: l.externalReservationId as string,
+              checkIn: ymd(l.checkIn),
+              checkOut: ymd(l.checkOut),
+              adults: 1,
+              guest: { firstName: 'Calendar', lastName: 'block' },
+              rooms: [],
+              currency: 'INR',
+              paymentCollectedByChannel: true,
+            }));
+          }
+        }
+      }
+
+      const fresh = await ingest(conn.channel, [...events, ...removed]);
+      if (skipped.length) {
+        await this.syncJobs.log({
+          propertyId: conn.propertyId,
+          channel: conn.channel,
+          action: 'poll_skipped',
+          status: SyncLogStatus.FAILED,
+          requestMetadata: { skipped: skipped.length },
+          error: `${skipped.length} item(s) were not imported: ${skipped.slice(0, 10).map((x) => `${x.externalReservationId ?? 'feed'} (${x.reason})`).join('; ')}`.slice(0, 1900),
+          duration: Date.now() - startedAt.getTime(),
+        });
+      }
+      // Persisted only now that the events are stored. Built-in channels have no cursor semantics and keep none.
+      await this.db
+        .updateTable('channelConnections')
+        .set({ lastPollAt: new Date(), lastPollError: null, ...(isConfigured ? { pollCursor: j({ updatedSince: pull.newestUpdatedAt && pull.newestUpdatedAt > (cursor ?? '') ? pull.newestUpdatedAt : startedAt.toISOString() }) } : {}) })
+        .where('id', '=', connectionId)
+        .execute();
+      return fresh;
     } catch (err) {
+      await this.db.updateTable('channelConnections').set({ lastPollError: redactText(err instanceof Error ? err.message : String(err)).slice(0, 1900) }).where('id', '=', connectionId).execute();
       if (err instanceof ChannelError && !err.retryable) return 0;
       throw err;
     }

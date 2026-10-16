@@ -53,7 +53,7 @@ export default function RegisterPage() {
             Register Property on Tirvona
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Create an organization account and start managing your rooms, bookings, and OTAs.
+            Create an organization account and start managing your rooms, bookings, and OTAs. New partners are reviewed by the Tirvona team before they can publish properties or use the API; you can set everything up meanwhile.
           </p>
         </div>
 

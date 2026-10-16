@@ -40,37 +40,48 @@ interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
 }
 
-// Token storage helpers
+// The access token (15 minutes) lives in memory only. The refresh token is an HttpOnly cookie that JavaScript cannot read; it is used
+// solely by the same-origin /api/session/* endpoints (lib/server/session-proxy.ts). A reload therefore starts without an access
+// token and gets a new one from /api/session/refresh.
+let accessToken: string | null = null;
+
+// Earlier versions kept both tokens in localStorage. Remove them so a stale refresh token can never be read by injected script.
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('tirvona_at');
+    localStorage.removeItem('tirvona_rt');
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export const tokenStorage = {
-  getAccess: (): string | null => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('tirvona_at');
-  },
+  getAccess: (): string | null => accessToken,
   setAccess: (token: string) => {
-    if (typeof window !== 'undefined') localStorage.setItem('tirvona_at', token);
-  },
-  getRefresh: (): string | null => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('tirvona_rt');
-  },
-  setRefresh: (token: string) => {
-    if (typeof window !== 'undefined') localStorage.setItem('tirvona_rt', token);
+    accessToken = token;
   },
   clear: () => {
+    accessToken = null;
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('tirvona_at');
-      localStorage.removeItem('tirvona_rt');
       localStorage.removeItem('tirvona_user');
       localStorage.removeItem('tirvona_property_id');
     }
   },
 };
 
+/** True when the server set its readable "a session exists" flag (it contains nothing secret). Saves a pointless refresh call for visitors. */
+export function hasSessionHint(): boolean {
+  return typeof document !== 'undefined' && /(?:^|;\s*)tv_s=1(?:;|$)/.test(document.cookie);
+}
+
+const SESSION_HEADERS = { 'Content-Type': 'application/json', 'X-Tirvona-CSRF': '1' };
+
 let refreshInFlight: Promise<string | null> | null = null;
 
-/** Test helper: forget any in-flight refresh. */
+/** Test helper: forget any in-flight refresh and the in-memory access token. */
 export function __resetClientStateForTests() {
   refreshInFlight = null;
+  accessToken = null;
 }
 
 function endSession() {
@@ -81,24 +92,17 @@ function endSession() {
 }
 
 /**
- * Exchanges the stored refresh token for new tokens. Resolves with the new access token,
- * or null when the session is definitively over (refresh refused). A transient network
- * failure throws instead, so the session is NOT destroyed by a brief outage.
+ * Gets a new access token from the server, which rotates the refresh-token cookie. Resolves with the access token, or null when
+ * the session is definitively over (no cookie, or the refresh was refused). A transient network or server failure throws instead,
+ * so the session is NOT destroyed by a brief outage. Refresh tokens are single-use: concurrent callers share ONE in-flight call.
  */
 function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
-  const refreshToken = tokenStorage.getRefresh();
-  if (!refreshToken) return Promise.resolve(null);
-
   refreshInFlight = (async () => {
     let res: Response;
     try {
-      res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
+      res = await fetch('/api/session/refresh', { method: 'POST', headers: SESSION_HEADERS, credentials: 'same-origin', cache: 'no-store' });
     } catch {
       throw new ApiError('Network error: Unable to reach the server. Please check your connection.', 'NETWORK_ERROR', 0);
     }
@@ -107,7 +111,7 @@ function refreshAccessToken(): Promise<string | null> {
       throw new ApiError('The server could not refresh your session. Please try again.', `HTTP_${res.status}`, res.status);
     }
 
-    let body: { success?: boolean; data?: { accessToken?: string; refreshToken?: string } } | null = null;
+    let body: { success?: boolean; data?: { accessToken?: string } } | null = null;
     try {
       body = await res.json();
     } catch {
@@ -119,13 +123,34 @@ function refreshAccessToken(): Promise<string | null> {
       return null;
     }
     tokenStorage.setAccess(data.accessToken);
-    if (data.refreshToken) tokenStorage.setRefresh(data.refreshToken);
     return data.accessToken as string;
   })().finally(() => {
     refreshInFlight = null;
   });
 
   return refreshInFlight;
+}
+
+/** Called once when the app starts: turns the session cookie (if any) into an in-memory access token. */
+export function restoreSession(): Promise<string | null> {
+  return refreshAccessToken();
+}
+
+/** login / register / logout go through the app's own server so the refresh token stays in the HttpOnly cookie. */
+export async function sessionRequest<T>(action: 'login' | 'register' | 'logout', body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/session/${action}`, {
+      method: 'POST',
+      headers: { ...SESSION_HEADERS, ...(action === 'logout' && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: body === undefined ? '{}' : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError('Network error: Unable to reach the server. Please check your connection.', 'NETWORK_ERROR', 0);
+  }
+  return parseApiResponse<T>(res);
 }
 
 export async function apiClient<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {

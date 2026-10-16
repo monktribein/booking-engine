@@ -57,9 +57,11 @@ export function configureApp(app: NestExpressApplication): void {
   app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
   app.enableShutdownHooks();
 
-  if (config.get('swagger', { infer: true }).enabled) {
-    SwaggerModule.setup('docs', app, () => createApiDocuments(app).full, { jsonDocumentUrl: 'docs/openapi.json' });
-    // The stable, versioned contract for external integrators: only /v1 (plus the public payment confirmation call).
+  const swaggerOn = config.get('swagger', { infer: true }).enabled;
+  if (swaggerOn) SwaggerModule.setup('docs', app, () => createApiDocuments(app).full, { jsonDocumentUrl: 'docs/openapi.json' });
+  // The stable, versioned contract for external integrators: only /v1 (plus the public payment confirmation call). It is public by
+  // design and carries no internal routes, so it is on by default even where the internal docs are off (PUBLIC_API_DOCS_ENABLED).
+  if (swaggerOn || config.get('publicApi', { infer: true }).docsEnabled) {
     SwaggerModule.setup('docs/v1', app, () => createApiDocuments(app).v1, { jsonDocumentUrl: 'docs/v1/openapi.json' });
   }
 }

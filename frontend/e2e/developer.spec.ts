@@ -16,6 +16,8 @@ test.describe('developer settings (API keys and webhooks)', () => {
     await page.getByRole('tab', { name: 'Developers' }).click();
 
     await page.getByLabel(/Key name/).fill('E2E partner');
+    // keys are read-only by default; booking is a sensitive scope the owner must tick on purpose
+    await page.getByLabel(/Create, change and cancel reservations/).check();
     await page.getByRole('button', { name: 'Create API key' }).click();
     const alert = appAlert(page).filter({ hasText: /shown only once/i });
     await expect(alert).toBeVisible();

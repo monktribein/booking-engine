@@ -25,6 +25,10 @@ export interface OrganizationsTable {
   name: string;
   slug: string;
   status: Generated<string>;
+  statusReason: string | null;
+  statusChangedAt: InstantNullable;
+  statusChangedBy: string | null;
+  approvedAt: InstantNullable;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -66,6 +70,15 @@ export interface PropertiesTable {
   images: JsonDefault<Image[]>;
   amenities: Generated<string[]>;
   status: Generated<string>;
+  directBookingEnabled: Generated<boolean>;
+  marketplaceStatus: Generated<string>;
+  marketplaceConsentAt: InstantNullable;
+  marketplaceConsentBy: string | null;
+  marketplaceReviewedAt: InstantNullable;
+  marketplaceReviewedBy: string | null;
+  marketplaceNote: string | null;
+  suspendedReason: string | null;
+  suspendedAt: InstantNullable;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -256,6 +269,8 @@ export interface ReservationsTable {
   reservationCode: string;
   source: string;
   externalReservationId: string | null;
+  /** Connection scope of the external id; the zero uuid (default) is the historic global scope. */
+  externalScope: Generated<string>;
   channelListingId: string | null;
   idempotencyKey: string | null;
   status: Generated<string>;
@@ -283,6 +298,8 @@ export interface ReservationsTable {
   statusHistory: JsonDefault<StatusChange[]>;
   cancelledAt: InstantNullable;
   cancellationReason: string | null;
+  apiKeyId: string | null;
+  partnerReference: string | null;
   createdBy: string | null;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
@@ -388,6 +405,14 @@ export interface ChannelConnectionsTable {
   lastSyncAt: InstantNullable;
   lastError: string | null;
   metadata: JsonDefault<Record<string, unknown>>;
+  providerId: string | null;
+  providerVersionId: string | null;
+  accountLabel: string | null;
+  pollIntervalSeconds: number | null;
+  pollCursor: ColumnType<Record<string, unknown> | null, string | null | undefined, string | null>;
+  lastPollAt: InstantNullable;
+  lastPollError: string | null;
+  webhookKey: string | null;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -398,6 +423,7 @@ export interface ChannelListingsTable {
   channelConnectionId: string | null;
   channel: string;
   externalListingId: string;
+  externalScope: Generated<string>;
   name: string;
   status: Generated<string>;
   lastSyncedAt: InstantNullable;
@@ -436,11 +462,110 @@ export interface ChannelRateMappingsTable {
   updatedAt: GeneratedInstant;
 }
 
+// -------------------------------------------------------------------- channel providers (configuration-driven integrations)
+
+export interface ChannelProvidersTable {
+  id: Generated<string>;
+  code: string;
+  name: string;
+  kind: string;
+  protocol: Generated<string>;
+  status: Generated<string>;
+  visibility: Generated<string>;
+  ownerOrganizationId: string | null;
+  adapterKey: string | null;
+  builtIn: Generated<boolean>;
+  currentVersionId: string | null;
+  createdBy: string | null;
+  createdAt: GeneratedInstant;
+  updatedAt: GeneratedInstant;
+}
+
+export interface ChannelProviderVersionsTable {
+  id: Generated<string>;
+  providerId: string;
+  version: number;
+  status: Generated<string>;
+  definition: Json<Record<string, unknown>>;
+  definitionHash: string;
+  validation: ColumnType<Record<string, unknown> | null, string | null | undefined, string | null>;
+  notes: string | null;
+  createdBy: string | null;
+  publishedBy: string | null;
+  publishedAt: InstantNullable;
+  createdAt: GeneratedInstant;
+}
+
+export interface ChannelConnectionSecretsTable {
+  id: Generated<string>;
+  connectionId: string;
+  kind: string;
+  name: Generated<string>;
+  ciphertext: string;
+  createdAt: GeneratedInstant;
+  rotatedAt: InstantNullable;
+}
+
+export interface ReconciliationRunsTable {
+  id: Generated<string>;
+  connectionId: string;
+  propertyId: string;
+  status: Generated<string>;
+  windowFrom: DateOnly;
+  windowTo: DateOnly;
+  remoteCount: number | null;
+  localCount: number | null;
+  issueCount: Generated<number>;
+  error: string | null;
+  startedAt: GeneratedInstant;
+  completedAt: InstantNullable;
+}
+
+export interface ReconciliationIssuesTable {
+  id: Generated<string>;
+  runId: string;
+  connectionId: string;
+  propertyId: string;
+  kind: string;
+  externalReservationId: string | null;
+  reservationId: string | null;
+  details: JsonDefault<Record<string, unknown>>;
+  status: Generated<string>;
+  resolution: string | null;
+  resolvedBy: string | null;
+  resolvedAt: InstantNullable;
+  createdAt: GeneratedInstant;
+}
+
+export interface IcalExportFeedsTable {
+  id: Generated<string>;
+  propertyId: string;
+  roomTypeId: string;
+  label: string | null;
+  tokenHash: string;
+  createdBy: string | null;
+  createdAt: GeneratedInstant;
+  lastFetchedAt: InstantNullable;
+  revokedAt: InstantNullable;
+}
+
+export interface ChannelProviderTestsTable {
+  id: Generated<string>;
+  providerId: string;
+  versionId: string | null;
+  environment: string;
+  passed: boolean;
+  results: JsonDefault<Record<string, unknown>[]>;
+  runBy: string | null;
+  createdAt: GeneratedInstant;
+}
+
 // -------------------------------------------------------------------- queues, notifications, audit
 
 export interface WebhookEventsTable {
   id: Generated<string>;
   channel: string;
+  externalScope: Generated<string>;
   propertyId: string | null;
   eventType: string;
   externalEventId: string;
@@ -571,7 +696,34 @@ export interface ApiKeysTable {
   expiresAt: InstantNullable;
   lastUsedAt: InstantNullable;
   revokedAt: InstantNullable;
+  environment: Generated<string>;
+  rotatedFrom: string | null;
+  lastUsedIp: string | null;
   createdBy: string | null;
+  createdAt: GeneratedInstant;
+  updatedAt: GeneratedInstant;
+}
+
+export interface ApiKeyUsageTable {
+  apiKeyId: string;
+  day: DateOnly;
+  requests: Generated<number>;
+  clientErrors: Generated<number>;
+  serverErrors: Generated<number>;
+  rateLimited: Generated<number>;
+}
+
+export interface IntegrationRequestsTable {
+  id: Generated<string>;
+  organizationId: string;
+  propertyId: string | null;
+  channel: string;
+  status: Generated<string>;
+  note: string | null;
+  decisionNote: string | null;
+  requestedBy: string | null;
+  decidedBy: string | null;
+  decidedAt: InstantNullable;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -584,6 +736,7 @@ export interface WebhookEndpointsTable {
   description: string | null;
   events: string[];
   secretEncrypted: string;
+  includeGuestDetails: Generated<boolean>;
   status: Generated<string>;
   createdBy: string | null;
   createdAt: GeneratedInstant;
@@ -631,6 +784,13 @@ export interface DB {
   channels: ChannelsTable;
   channelConnections: ChannelConnectionsTable;
   channelListings: ChannelListingsTable;
+  channelProviders: ChannelProvidersTable;
+  channelProviderVersions: ChannelProviderVersionsTable;
+  channelConnectionSecrets: ChannelConnectionSecretsTable;
+  reconciliationRuns: ReconciliationRunsTable;
+  reconciliationIssues: ReconciliationIssuesTable;
+  channelProviderTests: ChannelProviderTestsTable;
+  icalExportFeeds: IcalExportFeedsTable;
   channelRoomMappings: ChannelRoomMappingsTable;
   channelRateMappings: ChannelRateMappingsTable;
   webhookEvents: WebhookEventsTable;
@@ -643,9 +803,13 @@ export interface DB {
   apiKeys: ApiKeysTable;
   webhookEndpoints: WebhookEndpointsTable;
   webhookDeliveries: WebhookDeliveriesTable;
+  apiKeyUsage: ApiKeyUsageTable;
+  integrationRequests: IntegrationRequestsTable;
 }
 
 // Row helper types, named like the old Mongoose documents so call sites read the same.
+export type ChannelProvider = Selectable<ChannelProvidersTable>;
+export type ChannelProviderVersion = Selectable<ChannelProviderVersionsTable>;
 export type Organization = Selectable<OrganizationsTable>;
 export type User = Selectable<UsersTable>;
 export type Property = Selectable<PropertiesTable>;
@@ -675,4 +839,5 @@ export type PasswordResetToken = Selectable<PasswordResetTokensTable>;
 export type ApiKey = Selectable<ApiKeysTable>;
 export type WebhookEndpoint = Selectable<WebhookEndpointsTable>;
 export type WebhookDelivery = Selectable<WebhookDeliveriesTable>;
+export type IntegrationRequest = Selectable<IntegrationRequestsTable>;
 export type { Insertable, Selectable, Updateable };

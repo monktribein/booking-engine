@@ -11,6 +11,9 @@ import {
   ChannelConnectionStatus,
   MappingStatus,
   MarkupType,
+  ProviderProtocol,
+  ProviderStatus,
+  ProviderVisibility,
   SyncEntityType,
   SyncJobType,
 } from '../../database/enums';
@@ -22,6 +25,7 @@ import { SyncJobService } from '../../database/services/sync-job.service';
 import { OutboxDispatcher } from '../../jobs/outbox.dispatcher';
 import { AuditLogger } from '../audit/audit.logger';
 import { ChannelAdapterRegistry } from './channel-registry';
+import { ConnectionSecretsService } from './providers/connection-secrets.service';
 import type { CreateMappingsDto } from './channels.dto';
 import type { ChannelAdapter, ChannelCredentials } from './interfaces/channel-adapter.interface';
 
@@ -44,6 +48,7 @@ export class ChannelsService {
     private readonly outbox: OutboxDispatcher,
     private readonly audit: AuditLogger,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly secrets: ConnectionSecretsService,
   ) {}
 
   // ------------------------------------------------------------ status
@@ -72,13 +77,15 @@ export class ChannelsService {
       listings: 0,
       mappings: 0,
     }));
-    const external = this.registry.list().map((a) => {
+    const configured = this.registry.providersEnabled ? await this.configuredProviders() : [];
+    const external = [...this.registry.list().map((a) => ({ channel: a.channel, displayName: a.displayName, available: a.isAvailable(), configured: false })), ...configured].map((a) => {
       const c = conn.get(a.channel);
       return {
         channel: a.channel,
         displayName: a.displayName,
         internal: false,
-        available: a.isAvailable(),
+        configured: a.configured,
+        available: a.available,
         status: c?.status ?? ChannelConnectionStatus.DISCONNECTED,
         connectedAt: c?.connectedAt ?? undefined,
         lastSyncAt: c?.lastSyncAt ?? undefined,
@@ -90,6 +97,12 @@ export class ChannelsService {
     return [...internal, ...external];
   }
 
+  /** Active configuration-driven providers (their definition is published), for the connection list. */
+  private async configuredProviders(): Promise<{ channel: string; displayName: string; available: boolean; configured: true }[]> {
+    const rows = await this.db.selectFrom('channelProviders').select(['code', 'name', 'currentVersionId']).select('protocol').where('protocol', 'in', [ProviderProtocol.REST_JSON, ProviderProtocol.ICAL]).where('status', '=', ProviderStatus.ACTIVE).where('visibility', '=', ProviderVisibility.PLATFORM).orderBy('name').execute();
+    return rows.map((r) => ({ channel: r.code, displayName: r.name, available: r.protocol === ProviderProtocol.ICAL || !!r.currentVersionId, configured: true as const }));
+  }
+
   // ------------------------------------------------------------ connect / disconnect
 
   /**
@@ -98,6 +111,9 @@ export class ChannelsService {
    * callback with a code. Owners never type API keys into Tirvona.
    */
   async connect(user: AuthUser, meta: RequestMeta, propertyId: string, channel: string) {
+    if (this.registry.providersEnabled && !this.registry.isBuiltIn(channel)) {
+      throw new DomainValidationError(`${channel} connects with credentials, not an authorization redirect: use POST /properties/{id}/channels/${channel}/credentials`);
+    }
     const adapter = this.registry.get(channel);
     if (!adapter.isAvailable()) this.unavailable(adapter);
     const state = randomBytes(32).toString('base64url');
@@ -158,9 +174,9 @@ export class ChannelsService {
   }
 
   async disconnect(user: AuthUser, meta: RequestMeta, propertyId: string, channel: string) {
-    const adapter = this.registry.get(channel);
-    const conn = await this.db.selectFrom('channelConnections').selectAll().where('propertyId', '=', propertyId).where('channel', '=', adapter.channel).executeTakeFirst();
+    const conn = await this.db.selectFrom('channelConnections').selectAll().where('propertyId', '=', propertyId).where('channel', '=', channel).executeTakeFirst();
     if (!conn) throw new NotFoundError('Channel connection', channel);
+    const adapter = await this.registry.forConnection(conn);
     try {
       await adapter.disconnect(this.decrypt(conn));
     } catch (err) {
@@ -169,9 +185,10 @@ export class ChannelsService {
     }
     await this.db
       .updateTable('channelConnections')
-      .set({ status: ChannelConnectionStatus.DISCONNECTED, lastError: null, oauthStateHash: null, oauthStateExpiresAt: null, accessTokenEncrypted: null, refreshTokenEncrypted: null, expiresAt: null })
+      .set({ status: ChannelConnectionStatus.DISCONNECTED, lastError: null, oauthStateHash: null, oauthStateExpiresAt: null, accessTokenEncrypted: null, refreshTokenEncrypted: null, expiresAt: null, ...(this.registry.isBuiltIn(channel) ? {} : { webhookKey: null, pollCursor: null, lastPollAt: null, lastPollError: null }) })
       .where('id', '=', conn.id)
       .execute();
+    if (!this.registry.isBuiltIn(channel)) await this.secrets.deleteAll(conn.id); // configured providers keep their credentials in their own table
     await this.audit.log({ user, meta }, { action: 'channel.disconnect', entityType: 'ChannelConnection', entityId: conn.id, propertyId, metadata: { channel } });
     return { status: ChannelConnectionStatus.DISCONNECTED };
   }
@@ -180,7 +197,7 @@ export class ChannelsService {
 
   /** Pull listings (with their rooms and rate plans) from the channel and return them with current mappings. */
   async getListings(propertyId: string, channel: string, refresh = true) {
-    const adapter = this.registry.get(channel);
+    const adapter = await this.registry.forProperty(propertyId, channel);
     if (refresh) await this.importListings(propertyId, adapter);
     const listings = await this.mappings.listListingsWithMappings(propertyId);
     const full = await this.db.selectFrom('channelListings').select(['id', 'metadata']).where('propertyId', '=', propertyId).where('channel', '=', adapter.channel).execute();
@@ -196,13 +213,23 @@ export class ChannelsService {
 
   async importListings(propertyId: string, adapter: ChannelAdapter): Promise<number> {
     const { connection, creds } = await this.credentials(propertyId, adapter);
+    if (adapter.supports && !adapter.supports('listings')) {
+      throw new ChannelError('CHANNEL_OPERATION_NOT_SUPPORTED', `${adapter.displayName} does not provide a list of listings: add the listing ids by hand`, false);
+    }
     const listings = await adapter.getListings(creds);
+    const scope = this.registry.isBuiltIn(adapter.channel) ? undefined : connection.id;
     for (const l of listings) {
-      const [rooms, ratePlans] = await Promise.all([adapter.getRoomTypes(creds, l.externalListingId), adapter.getRates(creds, l.externalListingId)]);
+      // Only ask for what the provider says it can do; an absent capability means "none", not an error.
+      const [rooms, ratePlans] = await Promise.all([
+        // A provider without room types sells the listing itself as one unit (like an Airbnb listing): map it with no room id.
+        !adapter.supports || adapter.supports('roomTypes') ? adapter.getRoomTypes(creds, l.externalListingId) : Promise.resolve([{ externalRoomId: null, name: l.name }]),
+        !adapter.supports || adapter.supports('ratePlans') ? adapter.getRates(creds, l.externalListingId) : Promise.resolve([]),
+      ]);
       await this.mappings.upsertListing({
         propertyId,
         channel: adapter.channel,
         externalListingId: l.externalListingId,
+        externalScope: scope,
         name: l.name,
         channelConnectionId: connection.id,
         metadata: { ...(l.metadata ?? {}), rooms, ratePlans },
@@ -219,10 +246,10 @@ export class ChannelsService {
    * mappings get a full push of availability, rates and restrictions.
    */
   async createMappings(user: AuthUser, meta: RequestMeta, propertyId: string, channel: string, dto: CreateMappingsDto) {
-    const adapter = this.registry.get(channel);
+    const adapter = await this.registry.forProperty(propertyId, channel);
     const results = [];
     for (const input of dto.mappings) {
-      const listing = await this.db.selectFrom('channelListings').selectAll().where('propertyId', '=', propertyId).where('channel', '=', adapter.channel).where('externalListingId', '=', input.externalListingId).executeTakeFirst();
+      const listing = await this.db.selectFrom('channelListings').selectAll().where('propertyId', '=', propertyId).where('channel', '=', adapter.channel).where('externalListingId', '=', input.externalListingId).executeTakeFirst(); // unique per (channel, scope, id) and filtered by property here, so another tenant's identical id is never touched
       if (!listing) throw new NotFoundError(`${channel} listing (import listings first)`, input.externalListingId);
       const externalRoomId = input.externalRoomId ?? null;
       const knownRooms = (listing.metadata as { rooms?: { externalRoomId: string | null }[] }).rooms;
@@ -298,7 +325,7 @@ export class ChannelsService {
 
   /** Manual full resync: availability, rates and restrictions for the whole horizon, for every mapping. */
   async triggerSync(user: AuthUser, meta: RequestMeta, propertyId: string, channel: string) {
-    const adapter = this.registry.get(channel);
+    const adapter = await this.registry.forProperty(propertyId, channel);
     await this.credentials(propertyId, adapter); // must be connected
     const queued = await this.syncJobs.enqueueFullResync(propertyId, adapter.channel);
     await this.audit.log({ user, meta }, { action: 'channel.manual_sync', entityType: 'Property', entityId: propertyId, propertyId, metadata: { channel, queued } });
@@ -358,7 +385,8 @@ export class ChannelsService {
       .execute();
   }
 
-  private async afterConnected(propertyId: string, adapter: ChannelAdapter) {
+  /** After a connection is verified: import the channel's listings and queue a full push. Failures here never undo the connection. */
+  async afterConnected(propertyId: string, adapter: ChannelAdapter) {
     try {
       await this.importListings(propertyId, adapter);
     } catch (err) {
@@ -368,7 +396,7 @@ export class ChannelsService {
     void this.outbox.flush();
   }
 
-  private async queueMappingResync(propertyId: string, channel: ChannelCode, channelListingId: string, roomTypeId: string) {
+  private async queueMappingResync(propertyId: string, channel: string, channelListingId: string, roomTypeId: string) {
     const property = await this.db.selectFrom('properties').select(['timezone', 'bookingHorizonDays']).where('id', '=', propertyId).executeTakeFirstOrThrow();
     const from = todayIn(property.timezone);
     const to = addDays(from, property.bookingHorizonDays);

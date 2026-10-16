@@ -128,7 +128,9 @@ Recommended strategy (a policy to confirm, not something configured):
 * Before any risky operation (schema migration, bulk edit, data fix), take an on-demand backup.
 * Quarterly restore drill into a **new, scratch** project. Restore into the live project in place only as a last resort.
 
-**Restore drill (verified, isolated):** `npm run drill:restore` seeds a throw-away local PostgreSQL 17 (a paid booking included), writes a logical backup of every table (31 tables, one JSON line per row), destroys the database, migrates a fresh one, restores into it, and checks (all pass): per-table row count and content hash identical; constraints and indexes come back from the migrations; inventory counters consistent with reservations; `amount_paid`/`amount_refunded` equal the payments; uniqueness enforced again. This validates the data model's restorability and the procedure's shape. It does **not** validate Supabase's backups, retention, PITR, or restore time, and it is not a replacement for `pg_dump`.
+**Reference data in a fresh database:** migration `0003` inserts the built-in `channel_providers` rows. When a logical backup is loaded into a freshly migrated database those rows already exist and would collide with the backup's copies (which other tables point at by id), so the loader must replace them: the drill does (`delete` from any table that already holds rows, with foreign keys deferred). A restore by any other tool needs the same step, or must start from an empty schema (`pg_restore` of a full dump does).
+
+**Restore drill (verified, isolated):** `npm run drill:restore` seeds a throw-away local PostgreSQL 17 (a paid booking included), writes a logical backup of every table (40 tables, one JSON line per row), destroys the database, migrates a fresh one, restores into it, and checks (all pass): per-table row count and content hash identical; constraints and indexes come back from the migrations; inventory counters consistent with reservations; `amount_paid`/`amount_refunded` equal the payments; uniqueness enforced again. This validates the data model's restorability and the procedure's shape. It does **not** validate Supabase's backups, retention, PITR, or restore time, and it is not a replacement for `pg_dump`.
 
 ### Recovery checklist
 1. Declare the incident; stop writes if corruption is ongoing (scale API and worker to zero or set maintenance).
@@ -142,3 +144,10 @@ Recommended strategy (a policy to confirm, not something configured):
 6. Point `DATABASE_URL` to the restored database, start the API and worker, watch `/health`, the alerts above, and `GET /admin/sync-errors`.
 7. Keep the damaged database read-only until the post-mortem is complete.
 8. Record RPO (data lost) and RTO (time to recover) and update this document.
+
+## Channel providers (configuration-driven integrations)
+
+* Flag: `CHANNEL_PROVIDERS_ENABLED` (default off). Apply migration `0003` first; roll-out, verification queries and recovery are in [CHANNEL_FRAMEWORK.md](CHANNEL_FRAMEWORK.md#8-rollout-verification-and-recovery).
+* The scheduler (`SCHEDULER_ENABLED=true` on the worker) claims due connections every minute and enqueues one poll per connection on its own interval; it also runs reconciliation for every configured connection once a day.
+* Look at, per connection: `channel_connections.last_poll_at / last_poll_error / last_error`, the sync log (`poll_skipped`), `reconciliation_runs` and open `reconciliation_issues`.
+* A provider outage only affects connections to that provider; it is retried with backoff and never changes a reservation.

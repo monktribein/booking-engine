@@ -14,6 +14,7 @@ import { formatDate } from '@/lib/utils/dates';
 import { getChannelBadge, getChannelConnectionBadge } from '@/lib/utils/formatters';
 import { RefreshCw, ArrowRight, AlertTriangle, FileText } from 'lucide-react';
 import { channelsApi } from '@/lib/api/channels';
+import { IcalExportPanel } from '@/components/channels/IcalExportPanel';
 
 export default function ChannelManagerPage() {
   const { activeProperty, error: propertyError, reloadProperties, isLoading: propertyLoading } = useProperty();
@@ -66,7 +67,7 @@ export default function ChannelManagerPage() {
               const badge = getChannelBadge(channel.channel);
               const connBadge = getChannelConnectionBadge(channel.status);
               const isConnected = channel.status === ChannelConnectionStatus.CONNECTED;
-              const slug = channel.channel.toLowerCase().replace('_', '-');
+              const slug = channel.channel.toLowerCase().replace(/_/g, '-');
               const unavailable = !channel.internal && !channel.available;
 
               return (
@@ -141,6 +142,8 @@ export default function ChannelManagerPage() {
           </div>
         )}
       </QueryState>
+
+      <IcalExportPanel propertyId={propertyId} />
     </div>
   );
 }

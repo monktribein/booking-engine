@@ -1,4 +1,4 @@
-import { bearer, createPropertyWithRooms, day, registerOwner, PropertySetup, Session } from './utils/fixtures';
+import { bearer, createPlatformAdmin, createPropertyWithRooms, day, registerOwner, PropertySetup, Session } from './utils/fixtures';
 import { createTestApp, TestApp } from './utils/test-app';
 
 /** Public cross-property search for the guest-facing site: GET /public/properties. */
@@ -11,6 +11,7 @@ describe('Public property search', () => {
   let pricey: PropertySetup; // Jaipur, WiFi + Pool + Spa, ₹9,000, 3 rooms
   let hidden: PropertySetup; // Goa but INACTIVE
   let n = 0;
+  const DESCRIPTION = 'Beach hut near the shore with sea views and a small garden for guests.';
 
   const search = (query: Record<string, unknown> = {}) => t.http().get('/public/properties').set('X-Forwarded-For', `10.7.${Math.floor(++n / 250)}.${n % 250}`).query(query);
   const slugs = async (query: Record<string, unknown> = {}) => ((await search(query).expect(200)).body.data.items as { slug: string }[]).map((i) => i.slug);
@@ -24,20 +25,28 @@ describe('Public property search', () => {
     mid = await createPropertyWithRooms(t, ownerA.token, 3, { basePrice: 350000 });
     pricey = await createPropertyWithRooms(t, ownerB.token, 3, { basePrice: 900000 });
     hidden = await createPropertyWithRooms(t, ownerB.token, 3, { basePrice: 100000 });
-    await patch(cheap, ownerA.token, { city: 'Goa', state: 'Goa', amenities: ['WiFi', 'Pool'], description: 'Beach hut near the shore' });
-    await patch(mid, ownerA.token, { city: 'Goa', state: 'Goa', amenities: ['WiFi'] });
-    await patch(pricey, ownerB.token, { city: 'Jaipur', state: 'Rajasthan', amenities: ['WiFi', 'Pool', 'Spa'] });
-    await patch(hidden, ownerB.token, { city: 'Goa', state: 'Goa', status: 'INACTIVE' });
+    // The marketplace requires a real listing: a description of 50+ characters and a photo.
+    const listing = { images: [{ url: 'https://images.example.com/a.jpg', caption: 'Front', sortOrder: 0 }], description: 'A guest house with clean rooms, friendly staff and a quiet garden for slow mornings.' };
+    await patch(cheap, ownerA.token, { city: 'Goa', state: 'Goa', amenities: ['WiFi', 'Pool'], ...listing, description: DESCRIPTION });
+    await patch(mid, ownerA.token, { city: 'Goa', state: 'Goa', amenities: ['WiFi'], ...listing });
+    await patch(pricey, ownerB.token, { city: 'Jaipur', state: 'Rajasthan', amenities: ['WiFi', 'Pool', 'Spa'], ...listing });
+    await patch(hidden, ownerB.token, { city: 'Goa', state: 'Goa', status: 'INACTIVE', ...listing });
+    // Owners consent, the platform approves: only then does a property appear in search.
+    const admin = await createPlatformAdmin(t);
+    for (const [s, o] of [[cheap, ownerA], [mid, ownerA], [pricey, ownerB]] as const) {
+      await t.http().post(`/properties/${s.propertyId}/marketplace/request`).set(bearer(o.token)).send({ consent: true }).expect(200);
+      await t.http().post(`/admin/properties/${s.propertyId}/marketplace/approve`).set(bearer(admin.token)).send({}).expect(200);
+    }
   });
   afterAll(async () => {
     await t.close();
   });
 
-  it('lists active properties of every organization with the public fields only', async () => {
+  it('lists approved, opted-in properties of every organization with the public fields only', async () => {
     const res = (await search().expect(200)).body.data;
     expect(res.total).toBe(3);
     const item = res.items.find((i: { slug: string }) => i.slug === cheap.slug);
-    expect(item).toMatchObject({ name: expect.any(String), city: 'Goa', state: 'Goa', country: 'IN', currency: 'INR', startingFromPrice: 200000, amenities: ['WiFi', 'Pool'], description: 'Beach hut near the shore' });
+    expect(item).toMatchObject({ name: expect.any(String), city: 'Goa', state: 'Goa', country: 'IN', currency: 'INR', startingFromPrice: 200000, amenities: ['WiFi', 'Pool'], description: DESCRIPTION });
     expect(Object.keys(item).sort()).toEqual(['amenities', 'city', 'country', 'currency', 'description', 'image', 'maxOccupancy', 'name', 'slug', 'startingFromPrice', 'state']);
     expect(JSON.stringify(res)).not.toMatch(/organizationId|ownerId|postalCode|taxPercent|_id/);
     expect(await slugs()).not.toContain(hidden.slug); // INACTIVE never appears

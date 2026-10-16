@@ -52,6 +52,7 @@ function Checkout() {
   const adults = Number(searchParams.get('adults') || 0);
   const children = Number(searchParams.get('children') || 0);
   const promoCode = searchParams.get('promo') || undefined;
+  const source = searchParams.get('via') === 'tirvona' ? ('TIRVONA' as const) : undefined;
   const hasSelection = !!(roomTypeId && ratePlanId && checkIn && checkOut && adults > 0);
 
   // Server-side quote for exactly this selection
@@ -87,6 +88,7 @@ function Checkout() {
   const bookingPayload = useMemo(
     () => ({
       propertySlug,
+      source,
       roomTypeId,
       ratePlanId,
       quantity: 1,
@@ -98,7 +100,7 @@ function Checkout() {
       guest: { firstName: form.firstName.trim(), lastName: form.lastName.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.replace(/[\s-]/g, '') },
       specialRequests: form.specialRequests.trim() || undefined,
     }),
-    [propertySlug, roomTypeId, ratePlanId, checkIn, checkOut, adults, children, promoCode, form]
+    [propertySlug, source, roomTypeId, ratePlanId, checkIn, checkOut, adults, children, promoCode, form]
   );
 
   const goToConfirmation = (code: string) => router.push(`/booking/${propertySlug}/confirmation?code=${encodeURIComponent(code)}`);

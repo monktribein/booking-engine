@@ -61,6 +61,8 @@ export interface CreateReservationInput {
   guest: { firstName: string; lastName: string; email: string; phone: string; country?: string };
   specialRequests?: string;
   promoCode?: string;
+  /** Your own id for this booking (unique per property). Sending it again returns the original booking instead of a duplicate. */
+  externalReference?: string;
 }
 
 export interface Reservation {
@@ -74,7 +76,8 @@ export interface Reservation {
   nights: number;
   adults: number;
   children: number;
-  guest: { firstName: string; lastName: string; email: string | null; phone: string | null };
+  /** `redacted: true` means the key lacks the guests:read scope: only first name and last initial are shown. */
+  guest: { firstName: string; lastName: string; email: string | null; phone: string | null; redacted: boolean };
   rooms: Record<string, unknown>[];
   /** Minor units (paise for INR). */
   subtotal: number;
@@ -85,6 +88,8 @@ export interface Reservation {
   currency: string;
   paymentStatus: string;
   source: string;
+  /** The id you supplied when creating the booking, if any. */
+  externalReference: string | null;
   specialRequests: string | null;
   holdExpiresAt: string | null;
   createdAt: string;
@@ -123,11 +128,92 @@ export interface Page<T> {
 
 export interface ListReservationsQuery {
   propertySlug?: string;
+  externalReference?: string;
   status?: ReservationStatus;
   checkInFrom?: string;
   checkInTo?: string;
   page?: number;
   limit?: number;
+}
+
+/** Fields of a booking you may change. Send only what changes. */
+export interface UpdateReservationInput {
+  checkIn?: string;
+  checkOut?: string;
+  adults?: number;
+  children?: number;
+  specialRequests?: string;
+  guest?: { firstName?: string; lastName?: string; email?: string; phone?: string };
+}
+
+export interface ChannelConnection {
+  /** Provider code, e.g. AIRBNB or the code of a configured provider. */
+  channel: string;
+  name: string;
+  protocol: 'REST_JSON' | 'ICAL' | 'CODE';
+  status: 'CONNECTING' | 'CONNECTED' | 'ERROR' | 'EXPIRED';
+  /** What the connection can do: listings, pushAvailability, pushRates, pullReservations, polling, ... */
+  capabilities: string[];
+  lastSyncAt: string | null;
+  /** false when the last synchronisation or poll failed. Details are for the property owner. */
+  healthy: boolean;
+}
+
+export interface RatePlan {
+  id: string;
+  roomTypeId: string;
+  roomTypeName: string;
+  code: string;
+  name: string;
+  type: string;
+  /** Nightly base price in minor units (paise for INR). */
+  basePrice: number;
+  currency: string;
+  mealPlan: string;
+  status: string;
+  cancellationPolicy: Record<string, unknown>;
+}
+
+export interface InventoryDay {
+  date: string;
+  total: number;
+  sold: number;
+  blocked: number;
+  overbooked: number;
+  available: number;
+  stopSell: boolean;
+  restrictions: { minimumStay: number | null; maximumStay: number | null; closed: boolean; closedToArrival: boolean; closedToDeparture: boolean };
+}
+
+export interface Inventory {
+  propertySlug: string;
+  from: string;
+  to: string;
+  roomTypes: { roomTypeId: string; roomTypeName: string; days: InventoryDay[] }[];
+}
+
+/** Restrictions applied to every night in [from, to). Send null to clear minimumStay / maximumStay. */
+export interface RestrictionsInput {
+  roomTypeId: string;
+  from: string;
+  to: string;
+  minimumStay?: number | null;
+  maximumStay?: number | null;
+  closed?: boolean;
+  closedToArrival?: boolean;
+  closedToDeparture?: boolean;
+  stopSell?: boolean;
+}
+
+export interface ReservationPayments {
+  reservationCode: string;
+  currency: string;
+  total: number;
+  amountPaid: number;
+  amountRefunded: number;
+  paymentStatus: string;
+  payments: { id: string; provider: string; status: string; amount: number; amountRefunded: number; currency: string; providerPaymentId: string | null; paidAt: string | null; failureReason: string | null; createdAt: string }[];
+  refunds: { id: string; paymentId: string; amount: number; currency: string; status: string; reason: string | null; processedAt: string | null; createdAt: string }[];
 }
 
 export interface TirvonaClientOptions {
@@ -213,13 +299,49 @@ export class TirvonaClient {
     return this.request('POST', `/v1/reservations/${encodeURIComponent(code)}/cancel`, { body: reason ? { reason } : {} });
   }
 
+  /** Changes dates, guest counts, contact details or notes. Needs reservations:write; channel-owned bookings are changed on their channel. */
+  updateReservation(code: string, changes: UpdateReservationInput): Promise<Reservation> {
+    return this.request('PATCH', `/v1/reservations/${encodeURIComponent(code)}`, { body: changes });
+  }
+
+  /** Payments and refunds of a booking. Needs payments:read. */
+  getReservationPayments(code: string): Promise<ReservationPayments> {
+    return this.request('GET', `/v1/reservations/${encodeURIComponent(code)}/payments`);
+  }
+
+  /** Needs rates:read. */
+  /** Status and capabilities of the property's channel connections. Needs properties:read. */
+  listConnections(slug: string): Promise<ChannelConnection[]> {
+    return this.request('GET', `/v1/properties/${encodeURIComponent(slug)}/connections`);
+  }
+
+  listRatePlans(slug: string): Promise<RatePlan[]> {
+    return this.request('GET', `/v1/properties/${encodeURIComponent(slug)}/rate-plans`);
+  }
+
+  /** Sets nightly base prices (minor units). Needs rates:write. Repeating the same call changes nothing, so it is retried safely. */
+  updateRates(slug: string, updates: { ratePlanId: string; basePrice: number }[]): Promise<RatePlan[]> {
+    return this.request('PUT', `/v1/properties/${encodeURIComponent(slug)}/rates`, { body: { updates } });
+  }
+
+  /** Needs inventory:read. `to` is exclusive; at most 366 nights. */
+  getInventory(slug: string, query: { from: string; to: string; roomTypeId?: string }): Promise<Inventory> {
+    return this.request('GET', `/v1/properties/${encodeURIComponent(slug)}/inventory`, { query: { ...query } });
+  }
+
+  /** Sets restrictions / stop-sell for a room type over a date range. Needs inventory:write. */
+  setRestrictions(slug: string, input: RestrictionsInput): Promise<{ roomTypeId: string; from: string; to: string; applied: Record<string, unknown> }> {
+    return this.request('PUT', `/v1/properties/${encodeURIComponent(slug)}/inventory`, { body: input });
+  }
+
   // ------------------------------------------------------------ transport
 
-  private async request<T>(method: 'GET' | 'POST', path: string, opts: { query?: Record<string, unknown>; body?: unknown; idempotencyKey?: string } = {}): Promise<T> {
+  private async request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH', path: string, opts: { query?: Record<string, unknown>; body?: unknown; idempotencyKey?: string } = {}): Promise<T> {
     const url = new URL(this.base + path);
     for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     // A POST may be retried only if repeating it cannot do harm: reservations are idempotent by key; cancel is idempotent by nature.
-    const safeToRetry = method === 'GET' || opts.idempotencyKey !== undefined || path.endsWith('/cancel');
+    // GET, PUT and PATCH here set absolute values, so repeating them is harmless.
+    const safeToRetry = method !== 'POST' || opts.idempotencyKey !== undefined || path.endsWith('/cancel');
 
     for (let attempt = 0; ; attempt++) {
       let res: Response | undefined;
@@ -230,7 +352,7 @@ export class TirvonaClient {
           headers: {
             Authorization: `Bearer ${this.key}`,
             Accept: 'application/json',
-            'User-Agent': 'tirvona-sdk-js/0.1.0',
+            'User-Agent': 'tirvona-sdk-js/0.2.0',
             ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
             ...(opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {}),
           },

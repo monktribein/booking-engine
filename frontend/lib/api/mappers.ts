@@ -177,6 +177,7 @@ export function mapPublicReservationView(v: Raw): PublicReservationView {
     currency: v.currency,
     paymentStatus: v.paymentStatus,
     holdExpiresAt: v.holdExpiresAt ?? undefined,
+    cancellation: v.cancellation ?? undefined,
   };
 }
 
@@ -242,6 +243,7 @@ export function mapChannel(c: Raw): ChannelStatusInfo {
     kind: c.channel === 'TIRVONA' ? ChannelKind.MARKETPLACE : c.internal ? ChannelKind.DIRECT : ChannelKind.OTA,
     status,
     internal: c.internal,
+    configured: c.configured === true,
     available: c.available,
     connectedAt: c.connectedAt,
     lastSyncAt: c.lastSyncAt,

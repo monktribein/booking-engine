@@ -8,12 +8,20 @@ export const enumValues = <T extends Record<string, string>>(e: T): string[] => 
 // ---------------------------------------------------------------- identity
 
 export enum UserRole {
+  /** Platform owner: everything, including suspending partners and reaching any property. */
   SUPER_ADMIN = 'SUPER_ADMIN',
+  /** Platform operations: reviews and approves partners, marketplace listings and integration requests; read-only elsewhere. */
+  OPERATIONS_ADMIN = 'OPERATIONS_ADMIN',
   PROPERTY_OWNER = 'PROPERTY_OWNER',
   PROPERTY_MANAGER = 'PROPERTY_MANAGER',
   STAFF = 'STAFF',
   RECEPTION = 'RECEPTION',
+  /** Organization-level technical user: manages API keys and webhooks, sees no guest or booking data. */
+  DEVELOPER = 'DEVELOPER',
 }
+
+/** Roles that belong to the platform operator, not to a partner organization. */
+export const PLATFORM_ROLES: readonly UserRole[] = [UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN];
 
 export enum UserStatus {
   ACTIVE = 'ACTIVE',
@@ -31,7 +39,10 @@ export enum PropertyUserRole {
 }
 
 export enum OrganizationStatus {
+  /** Registered, waiting for platform approval. May use the PMS privately; cannot be public, issue API keys or connect channels. */
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
   ACTIVE = 'ACTIVE',
+  REJECTED = 'REJECTED',
   SUSPENDED = 'SUSPENDED',
   ARCHIVED = 'ARCHIVED',
 }
@@ -42,7 +53,26 @@ export enum PropertyStatus {
   DRAFT = 'DRAFT',
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
+  /** Set by the platform only. The owner cannot lift it. Not bookable by anyone but staff. */
+  SUSPENDED = 'SUSPENDED',
   ARCHIVED = 'ARCHIVED',
+}
+
+/** Tirvona marketplace listing state. Listing needs the owner's explicit consent and the platform's approval. */
+export enum MarketplaceStatus {
+  NOT_LISTED = 'NOT_LISTED',
+  REQUESTED = 'REQUESTED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  SUSPENDED = 'SUSPENDED',
+}
+
+export enum IntegrationRequestStatus {
+  REQUESTED = 'REQUESTED',
+  IN_REVIEW = 'IN_REVIEW',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  WITHDRAWN = 'WITHDRAWN',
 }
 
 export enum RoomTypeStatus {
@@ -201,8 +231,14 @@ export enum ChannelCode {
  */
 export const INTERNAL_CHANNELS: ReadonlySet<ChannelCode> = new Set([ChannelCode.TIRVONA, ChannelCode.DIRECT]);
 
-export const channelToSource = (channel: ChannelCode): ReservationSource =>
-  ReservationSource[channel as keyof typeof ReservationSource] ?? ReservationSource.OTHER;
+/** Sources that are NOT an external channel: Tirvona's own sites, the public API, and bookings typed in by staff. */
+const NON_CHANNEL_SOURCES: ReadonlySet<string> = new Set([ReservationSource.TIRVONA, ReservationSource.DIRECT, ReservationSource.API, ReservationSource.WALK_IN, ReservationSource.PHONE, ReservationSource.AGENT, ReservationSource.OTHER]);
+
+/** True for a booking that belongs to an external channel (a built-in OTA or any configured provider): the channel owns it. */
+export const isChannelSource = (source: string): boolean => !NON_CHANNEL_SOURCES.has(source);
+
+/** A built-in channel maps to its ReservationSource; a configured provider's code is its own source. */
+export const channelToSource = (channel: string): string => (channel === ChannelCode.OTHER ? ReservationSource.OTHER : ((ReservationSource as Record<string, string>)[channel] ?? channel));
 
 export enum ChannelKind {
   MARKETPLACE = 'MARKETPLACE',
@@ -245,7 +281,7 @@ export enum MarkupType {
 
 /** Who sent an inbound webhook: an OTA channel or a payment provider. */
 export const WEBHOOK_SOURCES = [...Object.values(ChannelCode), 'RAZORPAY'] as const;
-export type WebhookSource = ChannelCode | 'RAZORPAY';
+export type WebhookSource = string;
 
 export enum WebhookEventStatus {
   RECEIVED = 'RECEIVED',
@@ -355,11 +391,34 @@ export enum WebhookDeliveryStatus {
 }
 
 /** Event types delivered to customer webhook endpoints. Part of the public API contract. */
-export const API_EVENT_TYPES = ['reservation.created', 'reservation.confirmed', 'reservation.cancelled', 'payment.succeeded', 'payment.failed', 'ping'] as const;
+export const API_EVENT_TYPES = [
+  'reservation.created',
+  'reservation.confirmed',
+  'reservation.updated',
+  'reservation.cancelled',
+  'payment.succeeded',
+  'payment.failed',
+  'inventory.updated',
+  'ping',
+] as const;
 export type ApiEventType = (typeof API_EVENT_TYPES)[number];
 
 /** Scopes an API key can hold. */
-export const API_SCOPES = ['properties:read', 'availability:read', 'reservations:read', 'reservations:write'] as const;
+export const API_SCOPES = [
+  'properties:read',
+  'availability:read',
+  'rates:read',
+  'rates:write',
+  'inventory:read',
+  'inventory:write',
+  'reservations:read',
+  'reservations:write',
+  'guests:read',
+  'payments:read',
+] as const;
+
+/** Scopes that reveal personal or financial data, or change inventory and prices. Never granted by default. */
+export const SENSITIVE_API_SCOPES: readonly (typeof API_SCOPES)[number][] = ['rates:write', 'inventory:write', 'reservations:write', 'guests:read', 'payments:read'];
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export enum PromotionType {
@@ -367,3 +426,86 @@ export enum PromotionType {
   /** Minor units off the whole stay. */
   FIXED = 'FIXED',
 }
+
+// ------------------------------------------------------------------ channel providers (configuration-driven integrations)
+
+export enum ProviderKind {
+  MARKETPLACE = 'MARKETPLACE',
+  DIRECT = 'DIRECT',
+  OTA = 'OTA',
+  PMS = 'PMS',
+  PAYMENT = 'PAYMENT',
+  TEST = 'TEST',
+}
+
+/** How a provider is reached. INTERNAL = Tirvona's own inventory (no remote API); CODE = a registered TypeScript adapter. */
+export enum ProviderProtocol {
+  INTERNAL = 'INTERNAL',
+  CODE = 'CODE',
+  REST_JSON = 'REST_JSON',
+  ICAL = 'ICAL',
+  CSV = 'CSV',
+  XML = 'XML',
+  SOAP = 'SOAP',
+}
+
+export enum ProviderStatus {
+  DRAFT = 'DRAFT',
+  ACTIVE = 'ACTIVE',
+  DISABLED = 'DISABLED',
+}
+
+export enum ProviderVisibility {
+  PLATFORM = 'PLATFORM',
+  PRIVATE = 'PRIVATE',
+}
+
+export enum ProviderVersionStatus {
+  DRAFT = 'DRAFT',
+  VALIDATED = 'VALIDATED',
+  PUBLISHED = 'PUBLISHED',
+  RETIRED = 'RETIRED',
+}
+
+export enum ConnectionSecretKind {
+  API_KEY = 'API_KEY',
+  BASIC_USERNAME = 'BASIC_USERNAME',
+  BASIC_PASSWORD = 'BASIC_PASSWORD',
+  BEARER_TOKEN = 'BEARER_TOKEN',
+  CUSTOM_HEADER = 'CUSTOM_HEADER',
+  OAUTH_CLIENT_SECRET = 'OAUTH_CLIENT_SECRET',
+  WEBHOOK_SECRET = 'WEBHOOK_SECRET',
+  SIGNING_SECRET = 'SIGNING_SECRET',
+  /** iCal providers: a JSON list of { id, name, url } (each URL is itself a bearer secret). */
+  FEED_URLS = 'FEED_URLS',
+}
+
+export enum ReconciliationRunStatus {
+  RUNNING = 'RUNNING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export enum ReconciliationIssueKind {
+  MISSING_LOCAL = 'MISSING_LOCAL',
+  MISSING_REMOTE = 'MISSING_REMOTE',
+  STATUS_MISMATCH = 'STATUS_MISMATCH',
+  DATE_MISMATCH = 'DATE_MISMATCH',
+  UNMAPPED = 'UNMAPPED',
+  INGEST_FAILED = 'INGEST_FAILED',
+}
+
+export enum ReconciliationIssueStatus {
+  OPEN = 'OPEN',
+  RESOLVED = 'RESOLVED',
+  IGNORED = 'IGNORED',
+}
+
+export enum ProviderTestEnvironment {
+  SANDBOX = 'SANDBOX',
+  PRODUCTION = 'PRODUCTION',
+  LOCAL_FAKE = 'LOCAL_FAKE',
+}
+
+/** The all-zero scope: external ids of built-in channels keep their historic global uniqueness. */
+export const GLOBAL_EXTERNAL_SCOPE = '00000000-0000-0000-0000-000000000000';

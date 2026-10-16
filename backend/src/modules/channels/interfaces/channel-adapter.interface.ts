@@ -112,11 +112,19 @@ export interface ParsedWebhook {
 }
 
 export interface ChannelAdapter {
-  readonly channel: ChannelCode;
+  /** Provider code: a built-in ChannelCode or the code of a configured provider. */
+  readonly channel: string;
   readonly displayName: string;
 
   /** False when this deployment lacks the partner access needed to talk to the channel. */
   isAvailable(): boolean;
+
+  /**
+   * Whether this adapter can perform an operation (listings, roomTypes, ratePlans, pullReservations, getReservation, pushAvailability,
+   * pushRates, pushRestrictions, ackReservation). Optional: adapters that do not implement it are assumed to support everything.
+   * Callers check it BEFORE calling, so an unsupported operation is skipped visibly instead of failing or being faked.
+   */
+  supports?(operation: string): boolean;
 
   connect(ctx: ConnectContext): Promise<ConnectResult>;
   completeConnect(ctx: CompleteConnectContext): Promise<ChannelCredentials>;

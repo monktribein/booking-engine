@@ -2,6 +2,7 @@
 import { addDays, format } from 'date-fns';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authApi } from '@/lib/api/auth';
+import { liveLogin } from './session';
 import { bookingEngineApi } from '@/lib/api/booking-engine';
 import { apiClient, ApiError, tokenStorage } from '@/lib/api/client';
 import { channelsApi } from '@/lib/api/channels';
@@ -42,12 +43,12 @@ let slug = '';
 
 describe('auth against the real backend', () => {
   it('rejects a wrong password with 401 and stores nothing', async () => {
-    await expect(authApi.login({ email: EMAIL, password: 'definitely-wrong-1' })).rejects.toMatchObject({ status: 401 });
+    await expect(liveLogin({ email: EMAIL, password: 'definitely-wrong-1' })).rejects.toMatchObject({ status: 401 });
     expect(tokenStorage.getAccess()).toBeNull();
   });
 
   it('logs in with the seeded owner and loads /auth/me', async () => {
-    const { user } = await authApi.login({ email: EMAIL, password: PASSWORD });
+    const { user } = await liveLogin({ email: EMAIL, password: PASSWORD });
     expect(user.email).toBe(EMAIL);
     expect(tokenStorage.getAccess()).toBeTruthy();
     const me = await authApi.me();
@@ -58,7 +59,7 @@ describe('auth against the real backend', () => {
   });
 
   it('registration validates input server-side (weak password -> 400 with field details)', async () => {
-    const err = await authApi.register({ organizationName: 'Org', name: 'X', email: 'weak@example.com', password: 'short' }).catch((e) => e);
+    const err = (await apiClient('/auth/register', { method: 'POST', skipAuth: true, body: JSON.stringify({ organizationName: 'Org', name: 'X', email: 'weak@example.com', password: 'short' }) }).catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(400);
     expect(JSON.stringify(err.details)).toContain('password');
@@ -66,33 +67,8 @@ describe('auth against the real backend', () => {
     expect((await authApi.me()).email).toBe(EMAIL);
   });
 
-  it('a garbage access token is transparently refreshed once and the call succeeds; tokens rotate', async () => {
-    const beforeRt = tokenStorage.getRefresh();
-    tokenStorage.setAccess('not.a.jwt');
-    const props = await propertiesApi.list();
-    expect(props.items.length).toBeGreaterThan(0);
-    expect(tokenStorage.getRefresh()).not.toBe(beforeRt);
-    expect(tokenStorage.getAccess()).not.toBe('not.a.jwt');
-  });
-
-  it('concurrent expired requests share one refresh (no token-reuse revocation)', async () => {
-    tokenStorage.setAccess('expired.token.value');
-    const results = await Promise.all([propertiesApi.list(), authApi.me(), roomTypesApi.list(propertyId)]);
-    expect(results).toHaveLength(3);
-    // The session must still be alive afterwards
-    expect((await authApi.me()).email).toBe(EMAIL);
-  });
-
-  it('a revoked/unknown refresh token ends the session cleanly', async () => {
-    const good = tokenStorage.getRefresh()!;
-    tokenStorage.setAccess('expired.token.value');
-    tokenStorage.setRefresh('x'.repeat(40));
-    await expect(authApi.me()).rejects.toMatchObject({ status: 401 });
-    expect(tokenStorage.getRefresh()).toBeNull();
-    // restore a real session for the remaining tests
-    void good;
-    await authApi.login({ email: EMAIL, password: PASSWORD });
-  });
+  // Access-token refresh (HttpOnly cookie, rotation, concurrent 401s, revoked tokens) is covered by tests/client.test.ts, the
+  // session-proxy unit tests and the Playwright journeys: it needs a browser cookie jar, which these Node tests do not have.
 });
 
 describe('password recovery against the real backend', () => {

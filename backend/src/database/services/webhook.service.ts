@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { createHash } from 'node:crypto';
 import type { WebhookEvent } from '../db-types';
-import { ChannelCode, ReservationSource, WebhookEventStatus, WebhookSource, channelToSource } from '../enums';
+import { ChannelCode, GLOBAL_EXTERNAL_SCOPE, ReservationSource, WebhookEventStatus, WebhookSource, channelToSource } from '../enums';
 import { DomainError } from '../errors';
 import { Db, InjectDb, isUniqueViolation, j } from '../kysely';
 import { ChannelMappingService } from './channel-mapping.service';
@@ -19,9 +19,13 @@ export const WEBHOOK_MAX_ATTEMPTS = 10;
  */
 export interface NormalizedReservationEvent {
   kind: 'RESERVATION_CREATED' | 'RESERVATION_MODIFIED' | 'RESERVATION_CANCELLED';
-  channel: ChannelCode;
+  channel: string;
   externalListingId: string;
   externalReservationId: string;
+  /** Connection scope for configured providers (their ids are unique per connection, not globally). Absent = global scope. */
+  externalScope?: string;
+  /** The provider's own version marker of this state of the booking (its updated-at), when it has one: part of the poll event id. */
+  revision?: string;
   checkIn: string;
   checkOut: string;
   adults: number;
@@ -53,6 +57,8 @@ export class WebhookService {
    */
   async ingest(input: {
     channel: WebhookSource;
+    /** Connection scope of the event id (configured providers). Absent = global scope. */
+    externalScope?: string;
     eventType: string;
     externalEventId?: string;
     payload: Record<string, unknown>;
@@ -70,6 +76,7 @@ export class WebhookService {
         .insertInto('webhookEvents')
         .values({
           channel: input.channel,
+          ...(input.externalScope ? { externalScope: input.externalScope } : {}),
           propertyId: input.propertyId ?? null,
           eventType: input.eventType,
           externalEventId,
@@ -88,7 +95,7 @@ export class WebhookService {
       return { event, duplicate: false };
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      const event = await this.db.selectFrom('webhookEvents').selectAll().where('channel', '=', input.channel).where('externalEventId', '=', externalEventId).executeTakeFirstOrThrow();
+      const event = await this.db.selectFrom('webhookEvents').selectAll().where('channel', '=', input.channel).where('externalScope', '=', input.externalScope ?? GLOBAL_EXTERNAL_SCOPE).where('externalEventId', '=', externalEventId).executeTakeFirstOrThrow();
       return { event, duplicate: true };
     }
   }
@@ -138,15 +145,16 @@ export class WebhookService {
    * bookkeeping (processed/failed) is left to the caller.
    */
   async applyReservationEvent(e: NormalizedReservationEvent): Promise<ReservationEventOutcome> {
-    const source: ReservationSource = channelToSource(e.channel);
+    const source: string = channelToSource(e.channel);
+    const scope = e.externalScope ?? GLOBAL_EXTERNAL_SCOPE;
 
     if (e.kind === 'RESERVATION_CANCELLED') {
-      const r = await this.reservations.cancelByExternalId(source, e.externalReservationId, `Cancelled on ${e.channel}`);
+      const r = await this.reservations.cancelByExternalId(source, e.externalReservationId, `Cancelled on ${e.channel}`, scope);
       return { action: r.alreadyCancelled ? 'ALREADY_CANCELLED' : 'CANCELLED', reservationId: r.reservation.id, propertyId: r.reservation.propertyId };
     }
 
     if (e.kind === 'RESERVATION_MODIFIED') {
-      const existing = await this.db.selectFrom('reservations').select('id').where('source', '=', source).where('externalReservationId', '=', e.externalReservationId).executeTakeFirst();
+      const existing = await this.db.selectFrom('reservations').select('id').where('source', '=', source).where('externalScope', '=', scope).where('externalReservationId', '=', e.externalReservationId).executeTakeFirst();
       // A modification for a booking we never saw is treated as a creation.
       if (existing) {
         const r = await this.reservations.modifyByExternalId(source, e.externalReservationId, {
@@ -156,7 +164,7 @@ export class WebhookService {
           children: e.children,
           nightlyRatesByLine: expandRates(e.rooms),
           specialRequests: e.specialRequests,
-        });
+        }, scope);
         return { action: 'MODIFIED', reservationId: r.id, propertyId: r.propertyId };
       }
     }
@@ -165,7 +173,7 @@ export class WebhookService {
     let propertyId: Id | null = null;
     let channelListingId: Id | null = null;
     for (const room of e.rooms) {
-      const resolved = await this.channels.resolveInboundRoom(e.channel, e.externalListingId, room.externalRoomId ?? null);
+      const resolved = await this.channels.resolveInboundRoom(e.channel, e.externalListingId, room.externalRoomId ?? null, scope);
       if (!resolved?.mapping || !resolved.roomTypeId) {
         throw new DomainError('CHANNEL_MAPPING_MISSING', `No room mapping for ${e.channel} listing ${e.externalListingId} room ${room.externalRoomId ?? '-'}`);
       }
@@ -180,6 +188,7 @@ export class WebhookService {
       propertyId,
       source,
       externalReservationId: e.externalReservationId,
+      externalScope: e.externalScope,
       channelListingId,
       guest: e.guest,
       checkIn: e.checkIn,

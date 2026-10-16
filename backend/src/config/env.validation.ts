@@ -13,6 +13,7 @@ export function validateEnv(raw: Record<string, unknown>): Record<string, unknow
   if (env.DATABASE_SSL && !['disable', 'require', 'verify-full'].includes(env.DATABASE_SSL)) errors.push('DATABASE_SSL must be disable, require or verify-full');
   if (env.DATABASE_SSL === 'verify-full' && !env.DATABASE_CA_CERT) errors.push('DATABASE_SSL=verify-full needs DATABASE_CA_CERT (PEM text or a file path)');
   if (isProd && env.DATABASE_SSL === 'disable') errors.push('DATABASE_SSL=disable is not allowed in production');
+  if (env.BFF_SHARED_SECRET && env.BFF_SHARED_SECRET.length < 32) errors.push('BFF_SHARED_SECRET must be at least 32 characters (it must equal BFF_SHARED_SECRET on the web app)');
   if (env.DATABASE_POOL_MAX && !/^[1-9]\d*$/.test(env.DATABASE_POOL_MAX)) errors.push('DATABASE_POOL_MAX must be a positive integer');
   for (const k of ['JWT_SECRET', 'JWT_REFRESH_SECRET'] as const) {
     if (!env[k]) errors.push(`${k} is required`);
@@ -43,7 +44,7 @@ export function validateEnv(raw: Record<string, unknown>): Record<string, unknow
   }
 
   for (const k of ['API_KEY_RATE_LIMIT', 'API_KEY_RATE_TTL_MS', 'WEBHOOK_TIMEOUT_MS'] as const) {
-    if (env[k] !== undefined && env[k] !== '' && !/^[1-9]d*$/.test(env[k]!)) errors.push(`${k} must be a positive integer`);
+    if (env[k] !== undefined && env[k] !== '' && !/^[1-9]\d*$/.test(env[k]!)) errors.push(`${k} must be a positive integer`);
   }
   if (isProd && ['1', 'true', 'yes'].includes((env.WEBHOOK_ALLOW_PRIVATE_TARGETS ?? '').toLowerCase())) {
     errors.push('WEBHOOK_ALLOW_PRIVATE_TARGETS must not be on in production (server-side request forgery protection)');

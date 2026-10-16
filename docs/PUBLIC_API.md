@@ -32,9 +32,28 @@ Authorization: Bearer tvk_ab12cd34_...        (or: X-API-Key: tvk_...)
 | Scope | Allows |
 | --- | --- |
 | `properties:read` | `GET /v1/properties`, `GET /v1/properties/{slug}` |
+| `properties:read` | also `GET /v1/properties/{slug}/connections`: the property's channel connections with status and capabilities (no credentials, no error details) |
 | `availability:read` | `GET /v1/properties/{slug}/availability` |
+| `rates:read` | `GET /v1/properties/{slug}/rate-plans` |
+| `rates:write` * | `PUT /v1/properties/{slug}/rates` |
+| `inventory:read` | `GET /v1/properties/{slug}/inventory` |
+| `inventory:write` * | `PUT /v1/properties/{slug}/inventory` |
 | `reservations:read` | `GET /v1/reservations`, `GET /v1/reservations/{code}` |
-| `reservations:write` | `POST /v1/reservations`, `POST /v1/reservations/{code}/cancel` |
+| `reservations:write` * | `POST /v1/reservations`, `PATCH /v1/reservations/{code}`, `POST /v1/reservations/{code}/cancel` |
+| `guests:read` * | Guest contact details on reservations the key did not create |
+| `payments:read` * | `GET /v1/reservations/{code}/payments` |
+
+\* **Sensitive scopes** are never granted by default. A key created without an explicit scope list gets only the non-sensitive
+read scopes (`properties:read`, `availability:read`, `rates:read`, `inventory:read`, `reservations:read`).
+
+**Guest data is redacted by default.** Without `guests:read`, a reservation returned to a key shows `guest.redacted: true` and
+no e-mail, phone or address. A key always sees full details of the reservations it created itself.
+
+**Ownership.** Reservations that originate from a channel (`AIRBNB`, `BOOKING_COM`, `AGODA`, `MOCK`) belong to that channel:
+`PATCH` and `cancel` on them return `409 CHANNEL_OWNED_RESERVATION`. See INTEGRATION_GUIDE.md.
+
+**Approval.** Keys only work while the organization is `ACTIVE`. A pending, rejected or suspended partner gets
+`403 ORGANIZATION_NOT_APPROVED` / `ORGANIZATION_DISABLED`.
 
 * A key is an **organization** credential. It can only ever see that organization's properties. A resource of
   another tenant is reported as `404`, never `403`, so keys cannot probe for other tenants' data.
@@ -111,8 +130,10 @@ The signing secret (`whsec_…`) is shown once and stored encrypted (AES-256-GCM
 | `reservation.created` | A reservation is created (any source: direct, API, PMS, OTA) | `reservation` |
 | `reservation.confirmed` | A hold is paid, or a booking is created already confirmed | `reservation` |
 | `reservation.cancelled` | Cancelled by anyone | `reservation` |
+| `reservation.updated` | Dates, details, room assignment, check-in/out or no-show changed | `reservation`, `change` |
 | `payment.succeeded` | Money captured | `reservation`, `payment{amount,currency,totalPaid}` |
 | `payment.failed` | Gateway reported a failure | `reservation`, `payment{amount,currency,reason}` |
+| `inventory.updated` | Restrictions or sellable inventory of a room type changed through an explicit availability action | `propertyId`, `propertySlug`, `roomTypeId`, `from`, `to`, `reason` |
 | `ping` | You pressed **Send test** | `message` |
 
 Subscribe per type (or `*`) and optionally per property. `reservation` has the same shape as `GET /v1/reservations/{code}`.
@@ -220,3 +241,14 @@ const { reservation, payment } = await tirvona.createReservation(
   through `POST /payments/verify` or Razorpay's own webhook.
 * No OTA (Airbnb, Booking.com, Agoda) integration is claimed. See [CHANNEL_ADAPTERS.md](CHANNEL_ADAPTERS.md).
 * No browser/CORS access with API keys, no key-per-user model, no GraphQL.
+
+## 10. Changelog
+
+* **0.2.0 (this release)** — additive, except one deliberate behaviour change:
+  * **Behaviour change:** guest contact details in `/v1` reservations and in webhooks are redacted unless the key has
+    `guests:read` (or created the booking) / the endpoint opted in with `includeGuestDetails`. Integrations that relied on
+    receiving guest e-mail for other reservations must request `guests:read`.
+  * New scopes `rates:*`, `inventory:*`, `guests:read`, `payments:read`; new endpoints for rates, inventory, payments, `PATCH` reservation.
+  * New events `reservation.updated`, `inventory.updated`.
+  * Key rotation with a grace period, per-key usage counters and `lastUsedAt`.
+  * `externalReference` is stored on reservations, unique per organization, and filterable.

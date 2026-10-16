@@ -27,6 +27,8 @@ export enum Permission {
   CHANNELS_MANAGE = 'channels:manage',
   REPORTS_VIEW = 'reports:view',
   AUDIT_VIEW = 'audit:view',
+  /** Owner only: publish the property, consent to marketplace listing, manage visibility. */
+  MARKETPLACE_MANAGE = 'marketplace:manage',
 }
 
 const ALL = Object.values(Permission);
@@ -45,7 +47,7 @@ const FRONT_OFFICE: Permission[] = [
 
 export const ROLE_PERMISSIONS: Record<PropertyUserRole, ReadonlySet<Permission>> = {
   [PropertyUserRole.PROPERTY_OWNER]: new Set(ALL),
-  [PropertyUserRole.PROPERTY_MANAGER]: new Set(ALL.filter((p) => p !== Permission.PROPERTY_DELETE)),
+  [PropertyUserRole.PROPERTY_MANAGER]: new Set(ALL.filter((p) => p !== Permission.PROPERTY_DELETE && p !== Permission.MARKETPLACE_MANAGE)),
   [PropertyUserRole.RECEPTION]: new Set([...FRONT_OFFICE, Permission.PAYMENTS_COLLECT]),
   [PropertyUserRole.STAFF]: new Set(FRONT_OFFICE),
 };

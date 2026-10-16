@@ -113,3 +113,46 @@ test('accepts any of several v1 signatures (secret rotation)', () => {
   const newSig = sign('whsec_new', t, BODY).split(',')[1];
   assert.equal(verifyWebhookSignature('whsec_new', `t=${t},${oldSig},${newSig}`, BODY), true);
 });
+
+test('rates, inventory, payments and modification map to the right verbs and paths, and PUT/PATCH are retried safely', async () => {
+  let calls = 0;
+  const { fn, calls: seen } = fakeFetch(() => (++calls === 1 ? json(503, { success: false, error: { code: 'X', message: 'busy' } }) : json(200, { success: true, data: { ok: true } })));
+  const c = client(fn, { maxRetries: 1 });
+  await c.updateRates('radha-ashram', [{ ratePlanId: 'rp1', basePrice: 400000 }]); // 503 then 200: PUT is retried
+  assert.equal(seen.length, 2);
+  assert.equal(seen[0].init.method, 'PUT');
+  assert.equal(seen[0].url.pathname, '/v1/properties/radha-ashram/rates');
+  assert.deepEqual(JSON.parse(String(seen[0].init.body)), { updates: [{ ratePlanId: 'rp1', basePrice: 400000 }] });
+
+  const more = fakeFetch(() => json(200, { success: true, data: {} }));
+  const m = client(more.fn);
+  await m.getInventory('p', { from: '2026-10-01', to: '2026-10-05' });
+  await m.setRestrictions('p', { roomTypeId: 'rt', from: '2026-10-01', to: '2026-10-02', stopSell: true, minimumStay: null });
+  await m.updateReservation('TRV-AAAAAAAA', { adults: 1 });
+  await m.getReservationPayments('TRV-AAAAAAAA');
+  await m.listRatePlans('p');
+  assert.deepEqual(
+    more.calls.map((x) => `${x.init.method} ${x.url.pathname}${x.url.search}`),
+    [
+      'GET /v1/properties/p/inventory?from=2026-10-01&to=2026-10-05',
+      'PUT /v1/properties/p/inventory',
+      'PATCH /v1/reservations/TRV-AAAAAAAA',
+      'GET /v1/reservations/TRV-AAAAAAAA/payments',
+      'GET /v1/properties/p/rate-plans',
+    ],
+  );
+  assert.deepEqual(JSON.parse(String(more.calls[1].init.body)), { roomTypeId: 'rt', from: '2026-10-01', to: '2026-10-02', stopSell: true, minimumStay: null });
+});
+
+test('createReservation passes externalReference through', async () => {
+  const { fn, calls } = fakeFetch(() => json(201, { success: true, data: { reservation: {}, payment: null, created: true } }));
+  await client(fn).createReservation({ propertySlug: 'p', checkIn: '2026-10-05', checkOut: '2026-10-06', adults: 1, rooms: [{ roomTypeId: 'a', ratePlanId: 'b', quantity: 1 }], guest: { firstName: 'A', lastName: 'B', email: 'a@b.co', phone: '+911234567890' }, externalReference: 'PMS-1' });
+  assert.equal(JSON.parse(String(calls[0].init.body)).externalReference, 'PMS-1');
+});
+
+test('listConnections reads the connection status of a property', async () => {
+  const { fn, calls } = fakeFetch(() => json(200, { success: true, data: [{ channel: 'ACME_STAY', name: 'Acme Stay', protocol: 'REST_JSON', status: 'CONNECTED', capabilities: ['pushAvailability'], lastSyncAt: null, healthy: true }] }));
+  const out = await client(fn).listConnections('radha ashram');
+  assert.equal(calls[0].url.pathname, '/v1/properties/radha%20ashram/connections');
+  assert.equal(out[0].healthy, true);
+});

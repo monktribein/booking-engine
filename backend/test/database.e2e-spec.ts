@@ -84,7 +84,7 @@ describe('PostgreSQL schema', () => {
     const unknownToCode = [...sets].filter((x) => !covered(x));
     expect(unknownToCode).toEqual([]);
     // And the reverse for persisted enums: each enum used as a column type shows up as a CHECK list.
-    const persisted = ['UserRole', 'UserStatus', 'PropertyStatus', 'ReservationStatus', 'ReservationSource', 'PaymentStatus', 'PaymentProvider', 'RefundStatus', 'SyncJobStatus', 'WebhookEventStatus', 'WebhookDeliveryStatus', 'NotificationStatus', 'NotificationType', 'ApiKeyStatus'];
+    const persisted = ['UserRole', 'UserStatus', 'PropertyStatus', 'ReservationStatus', 'ReservationSource', 'PaymentStatus', 'PaymentProvider', 'RefundStatus', 'SyncJobStatus', 'WebhookEventStatus', 'WebhookDeliveryStatus', 'NotificationStatus', 'NotificationType', 'ApiKeyStatus', 'OrganizationStatus', 'MarketplaceStatus', 'IntegrationRequestStatus', 'ProviderKind', 'ProviderProtocol', 'ProviderStatus', 'ProviderVisibility', 'ProviderVersionStatus', 'ConnectionSecretKind', 'ReconciliationRunStatus', 'ReconciliationIssueKind', 'ReconciliationIssueStatus', 'ProviderTestEnvironment'];
     for (const name of persisted) {
       const values = Object.values((enums as Record<string, unknown>)[name] as Record<string, string>).sort().join(',');
       expect({ name, inMigration: sets.has(values) }).toEqual({ name, inMigration: true });

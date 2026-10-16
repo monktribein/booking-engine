@@ -20,6 +20,8 @@ export interface EndpointInput {
   events?: string[];
   propertyIds?: string[];
   status?: WebhookEndpointStatus;
+  /** Put guest e-mail/phone/special requests into the payloads (default: no). */
+  includeGuestDetails?: boolean;
 }
 
 const generateSecret = () => `whsec_${randomBytes(32).toString('base64url')}`;
@@ -31,6 +33,7 @@ interface EndpointRow {
   events: string[];
   propertyIds: string[];
   status: string;
+  includeGuestDetails: boolean;
   createdAt: Date;
 }
 
@@ -58,6 +61,7 @@ export class WebhookEndpointsService {
         description: input.description ?? null,
         events,
         secretEncrypted: encryptSecret(secret),
+        includeGuestDetails: input.includeGuestDetails ?? false,
         createdBy: user.userId,
       })
       .returningAll()
@@ -75,6 +79,7 @@ export class WebhookEndpointsService {
   async update(user: AuthUser, meta: RequestMeta, id: string, input: EndpointInput) {
     const organizationId = this.orgOf(user);
     const set: Record<string, unknown> = setFrom({ description: input.description, status: input.status });
+    if (input.includeGuestDetails !== undefined) set.includeGuestDetails = input.includeGuestDetails;
     if (input.url !== undefined) {
       this.checkUrl(input.url);
       set.url = input.url;
@@ -197,6 +202,6 @@ export class WebhookEndpointsService {
   }
 
   private view(d: EndpointRow) {
-    return { id: d.id, url: d.url, description: d.description ?? undefined, events: d.events, propertyIds: d.propertyIds, status: d.status, createdAt: d.createdAt };
+    return { id: d.id, url: d.url, description: d.description ?? undefined, events: d.events, propertyIds: d.propertyIds, status: d.status, includeGuestDetails: d.includeGuestDetails, createdAt: d.createdAt };
   }
 }

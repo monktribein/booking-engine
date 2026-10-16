@@ -19,8 +19,10 @@ import {
   ChannelConnectionStatus,
   ChannelKind,
   InventoryBlockReason,
+  MarketplaceStatus,
   MarkupType,
   MealPlan,
+  OrganizationStatus,
   PaymentProvider,
   PaymentStatus,
   PropertyStatus,
@@ -73,7 +75,7 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
   }
 
   // ------------------------------------------------------------ organization, users
-  const org = await db.insertInto('organizations').values({ name: 'Tirvona Demo', slug: ORG_SLUG }).returningAll().executeTakeFirstOrThrow();
+  const org = await db.insertInto('organizations').values({ name: 'Tirvona Demo', slug: ORG_SLUG, status: OrganizationStatus.ACTIVE, approvedAt: new Date() }).returningAll().executeTakeFirstOrThrow();
   const ownerPassword = process.env.SEED_OWNER_PASSWORD ?? randomBytes(12).toString('base64url');
   const owner = await db
     .insertInto('users')
@@ -102,6 +104,16 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
     .returningAll()
     .executeTakeFirstOrThrow();
 
+  // A platform administrator, only when asked for (SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD). The local sandbox asks for one; seeding a
+  // real database should not create an account with a password you did not choose: use `npm run admin:create:dev` there.
+  if (process.env.SEED_ADMIN_EMAIL) {
+    if (!process.env.SEED_ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD.length < 12) throw new Error('SEED_ADMIN_PASSWORD (12+ characters) is required with SEED_ADMIN_EMAIL');
+    await db
+      .insertInto('users')
+      .values({ organizationId: null, name: 'Platform Admin', email: process.env.SEED_ADMIN_EMAIL.toLowerCase(), phone: null, passwordHash: await hashPassword(process.env.SEED_ADMIN_PASSWORD), role: UserRole.SUPER_ADMIN, status: UserStatus.ACTIVE })
+      .execute();
+  }
+
   // ------------------------------------------------------------ property
   const property = await db
     .insertInto('properties')
@@ -127,6 +139,12 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
       amenities: ['wifi', 'parking', 'vegetarian-kitchen', 'temple-shuttle', 'power-backup'],
       images: j([{ url: 'https://images.tirvona.example/radha-ashram/facade.jpg', caption: 'Entrance', sortOrder: 0 }]),
       status: PropertyStatus.ACTIVE,
+      // The demo is published on its own page and approved on the marketplace (owner consent recorded).
+      directBookingEnabled: true,
+      marketplaceStatus: MarketplaceStatus.APPROVED,
+      marketplaceConsentAt: new Date(),
+      marketplaceConsentBy: owner.id,
+      marketplaceReviewedAt: new Date(),
     })
     .returningAll()
     .executeTakeFirstOrThrow();

@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Property } from '@/types';
 import { propertiesApi } from '../api';
+import { UserRole } from '@/types';
 import { useAuth } from './auth-context';
 
 interface PropertyContextType {
@@ -27,14 +28,16 @@ function savedPropertyId(): string | null {
 }
 
 export function PropertyProvider({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  // Platform staff and developers have no property memberships: they never load (or show) a property list.
+  const hasProperties = !!user && ![UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN, UserRole.DEVELOPER].includes(user.role);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Public pages and the signed-out state make no authenticated call (enabled: false).
   const query = useQuery({
     queryKey: ['properties', 'mine'],
     queryFn: () => propertiesApi.list(),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && hasProperties,
   });
 
   const items = isAuthenticated ? (query.data?.items ?? []) : [];

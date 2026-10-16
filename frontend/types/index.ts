@@ -10,6 +10,8 @@ import {
   PaymentProvider,
   PaymentStatus,
   PropertyStatus,
+  MarketplaceStatus,
+  OrganizationStatus,
   PropertyUserRole,
   RatePlanType,
   ReservationPaymentStatus,
@@ -49,7 +51,10 @@ export interface PaginatedResult<T> {
 // ---------------------------------------------------------------- Auth & User
 export interface User {
   _id: string;
-  organizationId: string;
+  /** Null for platform staff (SUPER_ADMIN, OPERATIONS_ADMIN), who belong to no partner organization. */
+  organizationId: string | null;
+  /** The partner's approval state; null for platform staff. */
+  organizationStatus?: OrganizationStatus | null;
   name: string;
   email: string;
   phone?: string;
@@ -104,6 +109,9 @@ export interface Property {
   amenities: string[];
   images: PropertyImage[];
   status: PropertyStatus;
+  /** The owner published the property's own booking page. */
+  directBookingEnabled?: boolean;
+  marketplaceStatus?: MarketplaceStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -325,7 +333,10 @@ export interface RefundItem {
 
 // ---------------------------------------------------------------- Channel Manager
 export interface ChannelStatusInfo {
-  channel: ChannelCode;
+  /** A built-in channel code or the code of a configured provider. */
+  channel: ChannelCode | string;
+  /** true for a provider defined as data (generic REST or iCal): it connects with credentials, not an authorization redirect. */
+  configured?: boolean;
   name: string;
   kind: ChannelKind;
   status: ChannelConnectionStatus;
@@ -530,6 +541,8 @@ export interface PublicAvailabilityItem {
 
 export interface PublicBookingInput {
   propertySlug: string;
+  /** 'TIRVONA' when the guest came from marketplace search; the server verifies the listing is approved. */
+  source?: 'TIRVONA';
   roomTypeId: string;
   ratePlanId: string;
   quantity: number;
@@ -578,6 +591,8 @@ export interface PublicReservationView {
   paymentStatus: ReservationPaymentStatus;
   /** ISO time until which a PENDING booking holds its rooms; absent once confirmed. */
   holdExpiresAt?: string;
+  /** Present on lookups: whether the guest may cancel online and what they would get back. */
+  cancellation?: { allowed: boolean; reason: string | null; refundIfCancelledNow: number };
 }
 
 export interface PublicBookingResult {

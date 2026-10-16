@@ -3,10 +3,11 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission } from '../../common/access/permissions';
 import { PropertyAccess } from '../../common/access/property-access.decorator';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
-import { CurrentUser, ReqMeta } from '../../common/decorators';
+import { AllowInactiveOrg, CurrentUser, ReqMeta, RequireActiveOrg, Roles } from '../../common/decorators';
+import { UserRole } from '../../database/enums';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
 import { ParseUuidPipe } from '../../common/utils';
-import { AddStaffDto, PropertyStaffDto, UpdateMeDto, UserDto } from './dto/user.dto';
+import { AddStaffDto, InviteDeveloperDto, OrganizationMemberDto, PropertyStaffDto, UpdateMeDto, UserDto } from './dto/user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('Users')
@@ -15,6 +16,7 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get('users/me')
+  @AllowInactiveOrg()
   @ApiOperation({ summary: 'Current user profile' })
   @ApiEnvelope(UserDto)
   @ApiStandardErrors()
@@ -28,6 +30,34 @@ export class UsersController {
   @ApiStandardErrors()
   updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateMeDto) {
     return this.users.updateMe(user, dto);
+  }
+
+  @Get('organizations/me/members')
+  @Roles(UserRole.PROPERTY_OWNER)
+  @ApiOperation({ summary: 'Everyone in the organization (owners only): staff and developers' })
+  @ApiEnvelope(OrganizationMemberDto, { isArray: true })
+  @ApiStandardErrors()
+  members(@CurrentUser() user: AuthUser) {
+    return this.users.listMembers(user);
+  }
+
+  @Post('organizations/me/developers')
+  @Roles(UserRole.PROPERTY_OWNER)
+  @RequireActiveOrg()
+  @ApiOperation({ summary: 'Invite a developer: manages API keys and webhooks, sees no bookings or guests (owners only)' })
+  @ApiEnvelope(OrganizationMemberDto, { status: 201 })
+  @ApiStandardErrors({ conflict: 'EMAIL_TAKEN' })
+  inviteDeveloper(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Body() dto: InviteDeveloperDto) {
+    return this.users.inviteDeveloper(user, meta, dto);
+  }
+
+  @Delete('organizations/me/developers/:userId')
+  @Roles(UserRole.PROPERTY_OWNER)
+  @ApiOperation({ summary: "Remove a developer's access immediately (sessions end)" })
+  @ApiEnvelope(OkDto)
+  @ApiStandardErrors({ notFound: true })
+  removeDeveloper(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('userId', ParseUuidPipe) userId: string) {
+    return this.users.removeDeveloper(user, meta, userId);
   }
 
   @Get('properties/:propertyId/users')

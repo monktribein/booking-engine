@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { User, UserRole } from '@/types';
-import { authApi, ApiError, LoginPayload, RegisterPayload, SESSION_EXPIRED_EVENT, tokenStorage } from '../api';
+import { authApi, ApiError, hasSessionHint, LoginPayload, RegisterPayload, restoreSession, SESSION_EXPIRED_EVENT, tokenStorage } from '../api';
 
 interface AuthContextType {
   user: User | null;
@@ -34,11 +34,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initRan.current = true;
 
     async function initAuth() {
-      if (!tokenStorage.getAccess() && !tokenStorage.getRefresh()) {
+      // The refresh token is an HttpOnly cookie we cannot read; the server leaves a readable flag when a session exists.
+      if (!tokenStorage.getAccess() && !hasSessionHint()) {
         setIsLoading(false);
         return;
       }
       try {
+        if (!tokenStorage.getAccess() && !(await restoreSession())) return; // the session ended: stay signed out
         setUser(await authApi.me());
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {

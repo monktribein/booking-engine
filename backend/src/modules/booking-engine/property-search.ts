@@ -4,6 +4,7 @@ import { Transform, Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min } from 'class-validator';
 import { sql } from 'kysely';
 import { IsDateOnly } from '../../common/dto';
+import { MARKETPLACE_LISTED } from '../../common/public-visibility';
 import { escapeLike } from '../../common/utils';
 import { MAX_STAY_NIGHTS } from '../../database/constants';
 import { eachNight, formatDateOnly, toDateOnly } from '../../database/common/dates';
@@ -102,7 +103,8 @@ export class PropertySearchService {
       stay = { checkIn, checkOut, nights };
     }
 
-    let query = this.db.selectFrom('properties').where('status', '=', PropertyStatus.ACTIVE);
+    // Marketplace search lists only approved, opted-in properties of approved organizations.
+    let query = this.db.selectFrom('properties').where(MARKETPLACE_LISTED);
     if (q.country) query = query.where('country', '=', q.country);
     if (q.city) query = query.where(sql<string>`lower(city)`, '=', q.city.trim().toLowerCase());
     if (q.q?.trim()) {

@@ -6,6 +6,8 @@
  *
  * Then run the frontend: npm run frontend:dev   (http://localhost:3001 -> API http://localhost:3000)
  * Sandbox owner login: owner@tirvona.demo / SandboxPass-123   (override with SEED_OWNER_PASSWORD)
+ * Sandbox platform admin: admin@tirvona.demo / SandboxAdmin-123   (override with SEED_ADMIN_PASSWORD)
+ * New registrations wait for approval like in production (approve them as the admin).
  * Razorpay is a local fake (scripts/sandbox-razorpay-shim.cjs) with fixed test credentials: no network call to the gateway.
  */
 import { spawn } from 'node:child_process';
@@ -26,6 +28,9 @@ async function main() {
     CORS_ORIGINS: process.env.CORS_ORIGINS ?? 'http://localhost:3001',
     APP_URL: process.env.APP_URL ?? 'http://localhost:3001',
     SEED_OWNER_PASSWORD: process.env.SEED_OWNER_PASSWORD ?? 'SandboxPass-123',
+    // A platform administrator for trying the admin console (approvals, suspensions). Local sandbox only.
+    SEED_ADMIN_EMAIL: process.env.SEED_ADMIN_EMAIL ?? 'admin@tirvona.demo',
+    SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD ?? 'SandboxAdmin-123',
     THROTTLE_AUTH_LIMIT: process.env.THROTTLE_AUTH_LIMIT ?? '100',
     // Sandbox gateway (see sandbox-razorpay-shim.cjs): fixed test credentials, online payment required like production.
     RAZORPAY_KEY_ID: 'rzp_test_SANDBOXKEY',

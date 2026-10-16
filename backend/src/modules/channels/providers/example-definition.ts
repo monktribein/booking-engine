@@ -1,0 +1,122 @@
+import type { ProviderDefinition } from './provider-definition';
+
+/**
+ * A complete, valid example definition for a fictional REST/JSON property-management API ("Acme Stay"). It is the reference the
+ * documentation points to and the definition the conformance tests run against a local fake server. It is not a real integration:
+ * a real provider's definition is written from that provider's own documentation.
+ */
+export function exampleRestDefinition(opts: { baseUrl: string; host: string }): ProviderDefinition {
+  return {
+    schemaVersion: 1,
+    protocol: 'REST_JSON',
+    environments: { production: { baseUrl: opts.baseUrl }, sandbox: { baseUrl: opts.baseUrl } },
+    allowedHosts: [opts.host],
+    auth: { type: 'API_KEY_HEADER', header: 'X-Api-Key' },
+    capabilities: { listings: true, roomTypes: true, ratePlans: true, pullReservations: true, getReservation: true, pushAvailability: true, pushRates: true, pushRestrictions: false, ackReservation: true, webhooks: true, polling: true },
+    operations: {
+      healthCheck: { method: 'GET', path: '/v1/health' },
+      listListings: {
+        method: 'GET',
+        path: '/v1/properties',
+        pagination: { type: 'CURSOR', param: 'cursor', sizeParam: 'limit', pageSize: 2, nextPath: '$.next', maxPages: 20 },
+        items: '$.data[*]',
+        fields: { externalListingId: '$.id', name: '$.name' },
+      },
+      listRoomTypes: {
+        method: 'GET',
+        path: '/v1/properties/{externalListingId}/rooms',
+        items: '$.data[*]',
+        fields: { externalRoomId: '$.id', name: '$.name', maxOccupancy: '$.max_guests' },
+      },
+      listRatePlans: {
+        method: 'GET',
+        path: '/v1/properties/{externalListingId}/rate-plans',
+        items: '$.data[*]',
+        fields: { externalRatePlanId: '$.id', name: '$.name', externalRoomId: '$.room_id' },
+      },
+      listReservations: {
+        method: 'GET',
+        path: '/v1/bookings',
+        query: { updated_since: '{since}' },
+        pagination: { type: 'PAGE', param: 'page', sizeParam: 'per_page', pageSize: 2, maxPages: 20, firstPage: 1 },
+        items: '$.items[*]',
+        fields: {
+          externalReservationId: '$.id',
+          externalListingId: '$.property_id',
+          externalRoomId: '$.room_id',
+          externalRatePlanId: '$.rate_plan_id',
+          checkIn: '$.arrival',
+          checkOut: '$.departure',
+          adults: '$.adults',
+          children: '$.children',
+          guestFirstName: '$.guest.first_name',
+          guestLastName: '$.guest.last_name',
+          guestEmail: '$.guest.email',
+          guestPhone: '$.guest.phone',
+          currency: '$.currency',
+          specialRequests: '$.notes',
+          updatedAt: '$.updated_at',
+        },
+      },
+      getReservation: {
+        method: 'GET',
+        path: '/v1/bookings/{externalReservationId}',
+        items: '$',
+        fields: {
+          externalReservationId: '$.id',
+          externalListingId: '$.property_id',
+          externalRoomId: '$.room_id',
+          externalRatePlanId: '$.rate_plan_id',
+          checkIn: '$.arrival',
+          checkOut: '$.departure',
+          adults: '$.adults',
+          children: '$.children',
+          guestFirstName: '$.guest.first_name',
+          guestLastName: '$.guest.last_name',
+          guestEmail: '$.guest.email',
+          guestPhone: '$.guest.phone',
+          currency: '$.currency',
+          specialRequests: '$.notes',
+          updatedAt: '$.updated_at',
+        },
+      },
+      pushAvailability: {
+        method: 'PUT',
+        path: '/v1/properties/{externalListingId}/availability',
+        batchSize: 3,
+        idempotencyHeader: 'Idempotency-Key',
+        body: { updates: { $each: 'updates', item: { room_id: '{item.externalRoomId}', date: '{item.date}', available: '{item.available}', stop_sell: '{item.stopSell}' } } },
+        acceptedPath: '$.accepted',
+        rejectedPath: '$.rejected',
+      },
+      pushRates: {
+        method: 'PUT',
+        path: '/v1/properties/{externalListingId}/rates',
+        batchSize: 3,
+        idempotencyHeader: 'Idempotency-Key',
+        body: { rates: { $each: 'updates', item: { room_id: '{item.externalRoomId}', rate_plan_id: '{item.externalRatePlanId}', date: '{item.date}', amount: '{item.price|minorToMajor}', currency: '{item.currency}' } } },
+        acceptedPath: '$.accepted',
+        rejectedPath: '$.rejected',
+      },
+      ackReservation: { method: 'POST', path: '/v1/bookings/{externalReservationId}/ack', body: { acknowledged: true } },
+    },
+    reservationMapping: {
+      statusPath: '$.status',
+      statusMap: { confirmed: 'RESERVATION_CREATED', modified: 'RESERVATION_MODIFIED', cancelled: 'RESERVATION_CANCELLED' },
+      pricing: { mode: 'TOTAL', path: '$.total', unit: 'MAJOR' },
+      dateFormat: 'YYYY-MM-DD',
+      paymentCollectedByChannel: true,
+    },
+    webhook: {
+      signature: { scheme: 'HMAC_SHA256', header: 'X-Acme-Signature', format: 'hex', signedPayload: 'TIMESTAMP.RAW_BODY', timestampHeader: 'X-Acme-Timestamp', toleranceSeconds: 300 },
+      eventIdPath: '$.event_id',
+      eventTypePath: '$.type',
+      reservationPath: '$.booking',
+      typeMap: { 'booking.created': 'RESERVATION_CREATED', 'booking.updated': 'RESERVATION_MODIFIED', 'booking.cancelled': 'RESERVATION_CANCELLED' },
+    },
+    rateLimit: { requestsPerSecond: 20 },
+    retry: { maxAttempts: 3, baseDelayMs: 50, maxDelayMs: 200, retryOnStatus: [429, 500, 502, 503, 504] },
+    limits: { timeoutMs: 3000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 },
+    defaultPollIntervalSeconds: 300,
+  };
+}

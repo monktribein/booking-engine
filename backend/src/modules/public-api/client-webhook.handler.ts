@@ -52,6 +52,13 @@ export class ClientWebhookJobHandler implements JobHandler<'client-webhook'>, On
       return { status: 'SKIPPED_ENDPOINT_INACTIVE' };
     }
 
+    // Nothing is delivered for a partner that is suspended or no longer approved. The delivery stays FAILED and can be redelivered later.
+    const org = await this.db.selectFrom('organizations').select('status').where('id', '=', d.organizationId).executeTakeFirst();
+    if (org?.status !== 'ACTIVE') {
+      await this.db.updateTable('webhookDeliveries').set({ status: WebhookDeliveryStatus.FAILED, lockedUntil: null, lastError: 'Organization is not active' }).where('id', '=', d.id).execute();
+      return { status: 'SKIPPED_ORGANIZATION_INACTIVE' };
+    }
+
     const { webhookAllowPrivateTargets, webhookTimeoutMs } = this.config.get('publicApi', { infer: true });
     const started = Date.now();
     try {

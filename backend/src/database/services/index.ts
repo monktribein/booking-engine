@@ -37,8 +37,8 @@ export function createServices(db: Db) {
   const audit = new AuditService(db);
   const channels = new ChannelMappingService(db);
   const syncJobs = new SyncJobService(db, channels);
-  const inventory = new InventoryService(db, syncJobs, audit);
   const clientEvents = new ClientEventService(db);
+  const inventory = new InventoryService(db, syncJobs, audit, clientEvents);
   const reservations = new ReservationService(db, inventory, syncJobs, audit, clientEvents);
   return {
     audit,

@@ -15,6 +15,7 @@ import type { InventoryBlock, Restriction } from '../db-types';
 import { Db, InjectDb, pgErrorCode, runInTransaction } from '../kysely';
 import { d } from '../sql';
 import { AuditService } from './audit.service';
+import { ClientEventService } from './client-event.service';
 import { SyncJobService } from './sync-job.service';
 
 type Id = string;
@@ -47,6 +48,7 @@ export class InventoryService {
     @InjectDb() private readonly db: Db,
     private readonly syncJobs: SyncJobService,
     private readonly audit: AuditService,
+    private readonly clientEvents: ClientEventService,
   ) {}
 
   // ================================================================ materialisation
@@ -321,6 +323,7 @@ export class InventoryService {
         entityId: block.id,
         after: { roomTypeId: input.roomTypeId, roomId: input.roomId ?? null, startDate, endDate, quantity, reason: input.reason },
       });
+      await this.clientEvents.emitInventory(tx, { propertyId: input.propertyId, roomTypeId: input.roomTypeId, from: formatDateOnly(startDate), to: formatDateOnly(endDate), reason: 'block' });
       return block;
     });
   }
@@ -367,6 +370,7 @@ export class InventoryService {
         dateTo: block.endDate,
       });
       await this.audit.record(tx, { propertyId, userId: releasedBy, action: 'inventory_block.release', entityType: 'InventoryBlock', entityId: block.id });
+      await this.clientEvents.emitInventory(tx, { propertyId, roomTypeId: block.roomTypeId, from: formatDateOnly(block.startDate), to: formatDateOnly(block.endDate), reason: 'block_released' });
       return block;
     });
   }
@@ -419,6 +423,7 @@ export class InventoryService {
           dateTo: to,
         });
         await this.audit.record(tx, { propertyId, userId: input.userId ?? null, action: 'restrictions.set', entityType: 'RoomType', entityId: roomTypeId, after: { from, to, ...patch } });
+        await this.clientEvents.emitInventory(tx, { propertyId, roomTypeId, from: formatDateOnly(from), to: formatDateOnly(to), reason: 'restrictions' });
       });
     } catch (err) {
       // 23514 = check_violation: the table refuses maximum_stay < minimum_stay.
@@ -488,6 +493,7 @@ export class InventoryService {
         entityType: SyncEntityType.ROOM_TYPE,
       });
       await this.audit.record(tx, { propertyId, userId, action: 'inventory.adjust_total', entityType: 'RoomType', entityId: roomTypeId, after: { delta, totalRooms: rt.totalRooms } });
+      await this.clientEvents.emitInventory(tx, { propertyId, roomTypeId, from: null, to: null, reason: 'capacity' });
     };
     // Inside a caller's transaction (room create/move) or in its own.
     if (outerTx) await body(outerTx);

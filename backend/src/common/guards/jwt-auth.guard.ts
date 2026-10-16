@@ -2,12 +2,12 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
-import { UserStatus } from '../../database/enums';
-import { UnauthorizedError } from '../../database/errors';
+import { OrganizationStatus, UserStatus } from '../../database/enums';
+import { ForbiddenError, UnauthorizedError } from '../../database/errors';
 import { Db, InjectDb } from '../../database/kysely';
 import type { AuthUser } from '../auth/auth-user';
 import { isUuid } from '../utils';
-import { IS_PUBLIC_KEY } from '../decorators';
+import { ALLOW_INACTIVE_ORG_KEY, IS_PUBLIC_KEY, REQUIRE_ACTIVE_ORG_KEY } from '../decorators';
 
 export interface AccessTokenClaims {
   sub: string;
@@ -51,14 +51,32 @@ export class JwtAuthGuard implements CanActivate {
 
     const [session, user] = await Promise.all([
       this.db.selectFrom('authSessions').select('id').where('id', '=', claims.sid).where('userId', '=', claims.sub).where('revokedAt', 'is', null).where('expiresAt', '>', new Date()).executeTakeFirst(),
-      this.db.selectFrom('users').select(['id', 'organizationId', 'role', 'status', 'email', 'name']).where('id', '=', claims.sub).executeTakeFirst(),
+      this.db
+        .selectFrom('users')
+        .leftJoin('organizations', 'organizations.id', 'users.organizationId')
+        .select(['users.id', 'users.organizationId', 'users.role', 'users.status', 'users.email', 'users.name', 'organizations.status as organizationStatus'])
+        .where('users.id', '=', claims.sub)
+        .executeTakeFirst(),
     ]);
     if (!session) throw new UnauthorizedError('Session has ended', 'SESSION_REVOKED');
     if (!user || user.status !== UserStatus.ACTIVE) throw new UnauthorizedError('Account is not active', 'ACCOUNT_INACTIVE');
 
+    const orgStatus = (user.organizationStatus ?? null) as OrganizationStatus | null;
+    const at = [ctx.getHandler(), ctx.getClass()];
+    if (orgStatus && !this.reflector.getAllAndOverride<boolean>(ALLOW_INACTIVE_ORG_KEY, at)) {
+      // A suspended, rejected or archived partner is locked out of everything except reading its own status and signing out.
+      if (orgStatus !== OrganizationStatus.ACTIVE && orgStatus !== OrganizationStatus.PENDING_APPROVAL) {
+        throw new ForbiddenError(`This organization is ${orgStatus.toLowerCase().replace('_', ' ')}. Contact Tirvona support.`, 'ORGANIZATION_DISABLED');
+      }
+      if (orgStatus !== OrganizationStatus.ACTIVE && this.reflector.getAllAndOverride<boolean>(REQUIRE_ACTIVE_ORG_KEY, at)) {
+        throw new ForbiddenError('This feature is available after the platform approves your organization.', 'ORGANIZATION_NOT_APPROVED');
+      }
+    }
+
     req.user = {
       userId: user.id,
       organizationId: user.organizationId,
+      organizationStatus: orgStatus,
       role: user.role as AuthUser['role'], // read fresh from the DB, so demotions apply at once
       sessionId: session.id,
       email: user.email,

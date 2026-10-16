@@ -1,13 +1,17 @@
 {
   "name": "@tirvona/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript client and webhook verification for the Tirvona public API (v1)",
   "license": "UNLICENSED",
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

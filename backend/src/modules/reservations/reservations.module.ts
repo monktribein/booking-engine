@@ -18,6 +18,7 @@ import {
   RoomAssignmentDto,
   UpdateReservationDto,
 } from './reservations.dto';
+import { CsvImportController, CsvImportService } from './csv-import';
 import { ReservationsService } from './reservations.service';
 
 const byId = (permission: Permission) => PropertyAccess(permission, { in: 'param', key: 'id', entity: 'reservation' });
@@ -128,5 +129,5 @@ export class ReservationsController {
   }
 }
 
-@Module({ controllers: [ReservationsController], providers: [ReservationsService], exports: [ReservationsService] })
+@Module({ controllers: [ReservationsController, CsvImportController], providers: [ReservationsService, CsvImportService], exports: [ReservationsService] })
 export class ReservationsModule {}

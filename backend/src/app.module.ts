@@ -2,7 +2,8 @@ import { Controller, Get, Global, Module, ServiceUnavailableException } from '@n
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SkipThrottle, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { SkipThrottle, ThrottlerModule } from '@nestjs/throttler';
+import { ClientIpThrottlerGuard } from './common/client-ip';
 import { sql } from 'kysely';
 import { PropertyAccessGuard } from './common/access/property-access.guard';
 import { PropertyAccessService } from './common/access/property-access.service';
@@ -22,6 +23,7 @@ import { AuditModule } from './modules/audit/audit.logger';
 import { AuthModule } from './modules/auth/auth.module';
 import { BookingEngineModule } from './modules/booking-engine/booking-engine.module';
 import { ChannelsModule } from './modules/channels/channels.module';
+import { IntegrationRequestsModule } from './modules/channels/integration-requests';
 import { GuestsModule } from './modules/guests/guests.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -107,6 +109,7 @@ const boot = configuration();
     BookingEngineModule,
     PublicApiModule,
     ChannelsModule,
+    IntegrationRequestsModule,
     WebhooksModule,
     SyncModule,
     NotificationsModule,
@@ -117,7 +120,7 @@ const boot = configuration();
   controllers: [HealthController],
   providers: [
     // Guard order: rate limit → authenticate → org role → property membership/permission.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: ClientIpThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PropertyAccessGuard },

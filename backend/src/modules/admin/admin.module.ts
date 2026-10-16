@@ -8,7 +8,7 @@ import { CurrentUser, ReqMeta, Roles } from '../../common/decorators';
 import { PaginationQueryDto } from '../../common/dto';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
 import { ParseUuidPipe, escapeLike, pageParams, toUuid } from '../../common/utils';
-import { ChannelCode, PropertyStatus, ReservationStatus, SyncJobStatus, SyncLogStatus, UserRole, WebhookEventStatus } from '../../database/enums';
+import { ChannelCode, MarketplaceStatus, PropertyStatus, ReservationStatus, SyncJobStatus, SyncLogStatus, UserRole, WebhookEventStatus } from '../../database/enums';
 import { NotFoundError } from '../../database/errors';
 import { Db, InjectDb } from '../../database/kysely';
 import { attachRooms } from '../../database/reservation-store';
@@ -18,10 +18,12 @@ import { ALL_QUEUES } from '../../jobs/queues';
 import { AuditLogger } from '../audit/audit.logger';
 import { WebhookJobHandler } from '../webhooks/webhooks.service';
 import { WebhooksModule } from '../webhooks/webhooks.module';
+import { PartnersAdminController, PartnersAdminService } from './partners-admin';
 
 class AdminPropertiesQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 100) q?: string;
   @ApiPropertyOptional({ enum: PropertyStatus }) @IsOptional() @IsEnum(PropertyStatus) status?: PropertyStatus;
+  @ApiPropertyOptional({ enum: MarketplaceStatus, description: 'REQUESTED = the approval queue' }) @IsOptional() @IsEnum(MarketplaceStatus) marketplaceStatus?: MarketplaceStatus;
 }
 
 class AdminReservationsQueryDto extends PaginationQueryDto {
@@ -66,12 +68,20 @@ export class AdminService {
     const p = pageParams(q.page, q.limit);
     let query = this.db.selectFrom('properties');
     if (q.status) query = query.where('status', '=', q.status);
+    if (q.marketplaceStatus) query = query.where('marketplaceStatus', '=', q.marketplaceStatus);
     if (q.q) {
       const like = `%${escapeLike(q.q)}%`;
       query = query.where((w) => w.or([w('name', 'ilike', like), w('slug', '=', q.q!.toLowerCase()), w('city', 'ilike', like)]));
     }
     const [items, total] = await Promise.all([
-      query.selectAll().orderBy('createdAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
+      query
+        .select(['id', 'organizationId', 'name', 'slug', 'city', 'state', 'country', 'status', 'directBookingEnabled', 'marketplaceStatus', 'marketplaceConsentAt', 'marketplaceReviewedAt', 'marketplaceNote', 'suspendedReason', 'createdAt'])
+        .select((eb) => eb.selectFrom('organizations as o').select('o.name').whereRef('o.id', '=', 'properties.organizationId').as('organizationName'))
+        .orderBy('createdAt', 'desc')
+        .orderBy('id', 'desc')
+        .offset(p.skip)
+        .limit(p.limit)
+        .execute(),
       query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
     ]);
     return { items, page: p.page, limit: p.limit, total: Number(total.n) };
@@ -87,8 +97,12 @@ export class AdminService {
       query.selectAll().orderBy('createdAt', 'desc').orderBy('id', 'desc').offset(p.skip).limit(p.limit).execute(),
       query.select((eb) => eb.fn.countAll<string>().as('n')).executeTakeFirstOrThrow(),
     ]);
-    // The status history is omitted from lists.
-    const items = (await attachRooms(this.db, rows)).map(({ statusHistory: _omit, ...r }) => r);
+    // Platform staff see what they need to operate (code, source, dates, money, state), not guest contact details:
+    // the guest is reduced to a first name and a last initial, and free-text requests and the status history are dropped.
+    const items = (await attachRooms(this.db, rows)).map(({ statusHistory: _h, specialRequests: _s, guestId: _g, guest, createdBy: _c, ...r }) => ({
+      ...r,
+      guest: { firstName: guest.firstName, lastInitial: guest.lastName ? `${guest.lastName.charAt(0)}.` : '' },
+    }));
     return { items, page: p.page, limit: p.limit, total: Number(total.n) };
   }
 
@@ -176,7 +190,7 @@ export class AdminService {
 }
 
 @ApiTags('Admin')
-@Roles(UserRole.SUPER_ADMIN)
+@Roles(UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
@@ -213,6 +227,7 @@ export class AdminController {
   }
 
   @Get('audit-logs')
+  @Roles(UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Audit trail (filter by property, user, action, entity)' })
   @ApiEnvelope(GenericItemDto, { paginated: true })
   @ApiStandardErrors()
@@ -263,5 +278,5 @@ export class PropertyAuditController {
   }
 }
 
-@Module({ imports: [WebhooksModule], controllers: [AdminController, PropertyAuditController], providers: [AdminService] })
+@Module({ imports: [WebhooksModule], controllers: [AdminController, PartnersAdminController, PropertyAuditController], providers: [AdminService, PartnersAdminService] })
 export class AdminModule {}

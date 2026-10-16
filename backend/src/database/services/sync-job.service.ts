@@ -55,7 +55,7 @@ export class SyncJobService {
   }
 
   /** After (re)connecting a channel: push the full horizon for every mapped room type. */
-  async enqueueFullResync(propertyId: Id, channel: ChannelCode): Promise<number> {
+  async enqueueFullResync(propertyId: Id, channel: string): Promise<number> {
     const property = await this.db.selectFrom('properties').select(['timezone', 'bookingHorizonDays']).where('id', '=', propertyId).executeTakeFirst();
     if (!property) throw new NotFoundError('Property', propertyId);
     const from = todayIn(property.timezone);
@@ -190,7 +190,7 @@ export class SyncJobService {
   /** Request/response metadata is redacted before it is stored: tokens never reach sync_logs. */
   async log(entry: {
     propertyId: Id;
-    channel: ChannelCode;
+    channel: string;
     syncJobId?: Id | null;
     action: string;
     status: SyncLogStatus;

@@ -60,7 +60,7 @@ describe('login page', () => {
   });
 
   it('success redirects once and a double click sends one login request', async () => {
-    const f = mockFetch((c) => (c.url.endsWith('/auth/login') ? ok({ accessToken: 'jwt', refreshToken: 'r'.repeat(30), expiresIn: 900, user: { _id: 'u', organizationId: 'o', name: 'O', email: 'o@x.co', role: 'PROPERTY_OWNER', status: 'ACTIVE', createdAt: '' } }) : fail(404, 'NOT_FOUND', 'x')));
+    const f = mockFetch((c) => (c.url.endsWith('/api/session/login') ? ok({ accessToken: 'jwt', expiresIn: 900, user: { _id: 'u', organizationId: 'o', name: 'O', email: 'o@x.co', role: 'PROPERTY_OWNER', status: 'ACTIVE', createdAt: '' } }) : fail(404, 'NOT_FOUND', 'x')));
     wrap(<LoginPage />);
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/email/i), 'o@x.co');
@@ -68,7 +68,7 @@ describe('login page', () => {
     const btn = screen.getByRole('button', { name: /sign in to dashboard/i });
     await user.dblClick(btn);
     await waitFor(() => expect(push).toHaveBeenCalledWith('/dashboard'));
-    expect(f.count('/auth/login')).toBe(1);
+    expect(f.count('/api/session/login')).toBe(1);
   });
 });
 

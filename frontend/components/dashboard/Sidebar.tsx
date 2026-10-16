@@ -17,6 +17,7 @@ import {
   BarChart3,
   Settings,
   ExternalLink,
+  Code2,
   LogOut,
   Sparkles,
 } from 'lucide-react';
@@ -40,7 +41,10 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
     { name: 'Payments', href: '/dashboard/payments', icon: CreditCard },
     { name: 'Reports', href: '/dashboard/reports', icon: BarChart3 },
     { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+    // API keys and webhooks are organization-level: owners (and developers, who see only this) manage them.
+    ...(user?.role === 'PROPERTY_OWNER' ? [{ name: 'Developers', href: '/dashboard/developers', icon: Code2 }] : []),
   ];
+  const published = !!activeProperty && (activeProperty.directBookingEnabled || activeProperty.marketplaceStatus === 'APPROVED');
 
   return (
     <>
@@ -116,8 +120,9 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
           <div className="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Direct Experience
           </div>
+          {published ? (
           <Link
-            href={activeProperty ? `/stays/${activeProperty.slug}` : '/dashboard'}
+            href={`/stays/${activeProperty!.slug}`}
             target="_blank"
             className="group flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/70 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50 transition-colors"
           >
@@ -130,6 +135,15 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
             </span>
             <ExternalLink className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
           </Link>
+          ) : (
+            <Link
+              href="/dashboard/settings?tab=visibility"
+              onClick={onClose}
+              className="flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50/70 hover:bg-amber-100/70 dark:bg-amber-950/30 dark:text-amber-300 transition-colors"
+            >
+              <span>Not published yet: set visibility</span>
+            </Link>
+          )}
         </nav>
 
         {/* User Profile & Sign Out Footer */}

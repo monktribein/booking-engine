@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { percentOf } from '../common/money';
 import { redactSecrets } from '../common/redact';
 import type { ChannelRateMapping, ChannelRoomMapping } from '../db-types';
-import { ChannelCode, ChannelConnectionStatus, INTERNAL_CHANNELS, MappingStatus, MarkupType, SyncJobType } from '../enums';
+import { ChannelCode, ChannelConnectionStatus, GLOBAL_EXTERNAL_SCOPE, INTERNAL_CHANNELS, MappingStatus, MarkupType, SyncJobType } from '../enums';
 import { DomainValidationError, DuplicateError, NotFoundError } from '../errors';
 import { Db, InjectDb, isUniqueViolation, j } from '../kysely';
 
@@ -11,7 +11,7 @@ type Id = string;
 
 export interface OutboundTarget {
   mappingId: Id;
-  channel: ChannelCode;
+  channel: string;
   channelListingId: Id;
   externalRoomId: string | null;
   syncAvailability: boolean;
@@ -35,13 +35,15 @@ export class ChannelMappingService {
 
   async upsertListing(input: {
     propertyId: Id;
-    channel: ChannelCode;
+    channel: string;
     externalListingId: string;
     name: string;
     channelConnectionId?: Id | null;
+    /** Connection scope of the external id (configuration-driven providers); omitted = the historic global scope. */
+    externalScope?: Id;
     metadata?: Record<string, unknown>;
   }) {
-    if (INTERNAL_CHANNELS.has(input.channel)) {
+    if (INTERNAL_CHANNELS.has(input.channel as ChannelCode)) {
       throw new DomainValidationError(`${input.channel} reads master inventory directly and has no external listings`);
     }
     // The unique (channel, external_listing_id) key means a listing belongs to exactly one property. The WHERE on the
@@ -52,13 +54,14 @@ export class ChannelMappingService {
         propertyId: input.propertyId,
         channel: input.channel,
         externalListingId: input.externalListingId,
+        ...(input.externalScope ? { externalScope: input.externalScope } : {}),
         name: input.name,
         channelConnectionId: input.channelConnectionId ?? null,
         metadata: j(redactSecrets(input.metadata ?? {})),
       })
       .onConflict((oc) =>
         oc
-          .columns(['channel', 'externalListingId'])
+          .columns(['channel', 'externalScope', 'externalListingId'])
           .doUpdateSet((eb) => ({ name: eb.ref('excluded.name'), metadata: eb.ref('excluded.metadata'), channelConnectionId: eb.ref('excluded.channelConnectionId') }))
           .where('channelListings.propertyId', '=', input.propertyId),
       )
@@ -150,8 +153,8 @@ export class ChannelMappingService {
   // ------------------------------------------------------------ inbound (channel → Tirvona)
 
   /** Resolve an inbound booking's listing/room to our property and room type. */
-  async resolveInboundRoom(channel: ChannelCode, externalListingId: string, externalRoomId: string | null = null) {
-    const listing = await this.db.selectFrom('channelListings').selectAll().where('channel', '=', channel).where('externalListingId', '=', externalListingId).executeTakeFirst();
+  async resolveInboundRoom(channel: string, externalListingId: string, externalRoomId: string | null = null, externalScope: string = GLOBAL_EXTERNAL_SCOPE) {
+    const listing = await this.db.selectFrom('channelListings').selectAll().where('channel', '=', channel).where('externalScope', '=', externalScope).where('externalListingId', '=', externalListingId).executeTakeFirst();
     if (!listing) return null;
     let q = this.db.selectFrom('channelRoomMappings').selectAll().where('channelListingId', '=', listing.id).where('status', '<>', MappingStatus.ARCHIVED);
     q = externalRoomId === null ? q.where('externalRoomId', 'is', null) : q.where('externalRoomId', '=', externalRoomId);

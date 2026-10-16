@@ -4,7 +4,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
-import { CurrentUser, Public, ReqMeta } from '../../common/decorators';
+import { CurrentUser, Public, ReqMeta, AllowInactiveOrg } from '../../common/decorators';
 import { ApiEnvelope, ApiStandardErrors, OkDto } from '../../common/swagger';
 import type { AppConfig } from '../../config/configuration';
 import { UnauthorizedError } from '../../database/errors';
@@ -60,6 +60,7 @@ export class AuthController {
     return this.withCookie(res, await this.auth.refresh(token, meta));
   }
 
+  @AllowInactiveOrg()
   @Post('logout')
   @HttpCode(200)
   @ApiOperation({ summary: 'End the current login (all tokens of this session family stop working immediately)' })
@@ -106,6 +107,7 @@ export class AuthController {
     return { ok: true };
   }
 
+  @AllowInactiveOrg()
   @Get('me')
   @ApiOperation({ summary: 'The signed-in user' })
   @ApiEnvelope(UserDto)

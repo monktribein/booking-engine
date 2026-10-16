@@ -13,6 +13,7 @@ docs/       Database, operations, deployment, public API, channel adapters, audi
 - **Data model and database decisions:** [docs/DATABASE.md](docs/DATABASE.md)
 - **Dashboard API docs:** run the backend and open `http://localhost:3000/docs` (OpenAPI JSON at `/docs/openapi.json`)
 - **OTA / channel architecture (what is and is not connected):** [docs/CHANNEL_ADAPTERS.md](docs/CHANNEL_ADAPTERS.md)
+- **Configuration-driven integrations (provider definitions, generic REST, iCal, CSV, reconciliation):** [docs/CHANNEL_FRAMEWORK.md](docs/CHANNEL_FRAMEWORK.md), and the state of the Tirvona.com connection: [docs/TIRVONA_INTEGRATION.md](docs/TIRVONA_INTEGRATION.md)
 
 ## Run it locally
 

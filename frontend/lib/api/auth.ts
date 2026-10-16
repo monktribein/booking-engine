@@ -1,4 +1,4 @@
-import { apiClient, tokenStorage } from './client';
+import { apiClient, sessionRequest, tokenStorage } from './client';
 import { AuthTokens, User } from '@/types';
 
 export interface LoginPayload {
@@ -14,7 +14,10 @@ export interface RegisterPayload {
   phone?: string;
 }
 
-/** Backend contract: POST /auth/login | /auth/register -> { accessToken, refreshToken, expiresIn, user } */
+/**
+ * POST /api/session/login | register -> { accessToken, expiresIn, user }. The app's server keeps the refresh token in an HttpOnly
+ * cookie: it is never part of this response and never reaches JavaScript.
+ */
 export type AuthSession = AuthTokens & { user: User };
 
 function persistSession(res: AuthSession): { user: User; tokens: AuthTokens } {
@@ -23,29 +26,20 @@ function persistSession(res: AuthSession): { user: User; tokens: AuthTokens } {
     throw new Error('The server returned an invalid sign-in response.');
   }
   tokenStorage.setAccess(res.accessToken);
-  if (res.refreshToken) tokenStorage.setRefresh(res.refreshToken);
   const { user, ...tokens } = res;
   return { user, tokens };
 }
 
 export const authApi = {
   async login(payload: LoginPayload): Promise<{ user: User; tokens: AuthTokens }> {
-    const res = await apiClient<AuthSession>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      skipAuth: true,
-    });
+    const res = await sessionRequest<AuthSession>('login', payload);
     return persistSession(res);
   },
 
   async register(payload: RegisterPayload): Promise<{ user: User; tokens: AuthTokens }> {
     const body: RegisterPayload = { ...payload };
     if (!body.phone) delete body.phone; // backend rejects an empty phone (E.164)
-    const res = await apiClient<AuthSession>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(body),
-      skipAuth: true,
-    });
+    const res = await sessionRequest<AuthSession>('register', body);
     return persistSession(res);
   },
 
@@ -83,9 +77,7 @@ export const authApi = {
   /** Local session state is always cleared, even if the server call fails. */
   async logout(): Promise<void> {
     try {
-      if (tokenStorage.getAccess()) {
-        await apiClient('/auth/logout', { method: 'POST' });
-      }
+      await sessionRequest('logout'); // revokes the session on the API and clears the cookie
     } catch {
       // Server-side revocation is best effort; the local session is removed regardless.
     } finally {

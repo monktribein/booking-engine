@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { UnauthorizedError } from '../../database/errors';
+import { ChannelConnectionStatus } from '../../database/enums';
+import { NotFoundError, UnauthorizedError } from '../../database/errors';
 import { Db, InjectDb } from '../../database/kysely';
 import { NormalizedReservationEvent, WebhookService } from '../../database/services/webhook.service';
 import { JobContext, JobHandler, JobHandlerRegistry, isFinalAttempt, isRetryable, nonRetryable } from '../../jobs/job-handler';
@@ -27,6 +28,46 @@ export class WebhooksService {
     private readonly store: WebhookService,
     private readonly outbox: OutboxDispatcher,
   ) {}
+
+  /**
+   * Inbound webhook of a configured provider, addressed to ONE connection by its random key. The signature is checked with that
+   * connection's own secret, the event id is deduplicated within the connection, and nothing about the connection is revealed to a
+   * caller who does not hold a valid signature (an unknown key and a wrong signature are both refused without detail).
+   */
+  async receiveForConnection(webhookKey: string, req: InboundWebhookRequest): Promise<WebhookReceipt> {
+    const resolved = await this.registry.forWebhookKey(webhookKey).catch(() => null);
+    if (!resolved || resolved.connection.status !== ChannelConnectionStatus.CONNECTED) throw new NotFoundError('Webhook endpoint', 'unknown');
+    const { adapter, connection } = resolved;
+    const signatureValid = adapter.verifyWebhook(req);
+    let parsed: ParsedWebhook | null = null;
+    if (signatureValid) {
+      try {
+        parsed = adapter.parseWebhook(req.body);
+      } catch {
+        parsed = null; // authentic but unparseable: stored as IGNORED for investigation
+      }
+    }
+    const { event, duplicate } = await this.store.ingest({
+      channel: connection.channel,
+      externalScope: connection.id,
+      eventType: parsed?.eventType ?? 'unknown',
+      externalEventId: parsed?.externalEventId,
+      // Only the normalised reservation is kept (not the raw body), and nothing at all of an unauthenticated delivery.
+      payload: signatureValid && parsed?.reservation ? { normalized: true, connectionId: connection.id, reservation: parsed.reservation } : { normalized: false },
+      rawBody: req.rawBody,
+      signature: undefined,
+      signatureValid: signatureValid && parsed !== null,
+      propertyId: connection.propertyId,
+    });
+    if (!signatureValid) throw new UnauthorizedError('Webhook signature verification failed', 'INVALID_SIGNATURE');
+    if (!duplicate && parsed?.reservation) {
+      await this.store.markEnqueued(event.id);
+      await this.outbox.enqueueWebhook(event.id, connection.channel, event.enqueuedAt?.getTime() ?? Date.now());
+    } else if (!duplicate && parsed) {
+      await this.store.markIgnored(event.id, `No handler for event type ${parsed.eventType}`);
+    }
+    return { received: true, duplicate, eventId: event.id };
+  }
 
   async receive(channel: string, req: InboundWebhookRequest): Promise<WebhookReceipt> {
     const adapter = this.registry.get(channel);
@@ -87,8 +128,9 @@ export class WebhookJobHandler implements JobHandler<'webhook-processing'>, OnMo
     const event = await this.store.claimById(id);
     if (!event) return { status: 'SKIPPED_ALREADY_HANDLED' };
     try {
-      const payload = event.payload as { polled?: boolean; reservation?: NormalizedReservationEvent };
-      const reservation = payload.polled ? payload.reservation : this.adapters.get(event.channel).parseWebhook(event.payload).reservation;
+      // Polled and connection-addressed (configured provider) events are stored already normalised; built-in channels store the raw body.
+      const payload = event.payload as { polled?: boolean; normalized?: boolean; reservation?: NormalizedReservationEvent };
+      const reservation = payload.polled || payload.normalized ? payload.reservation : this.adapters.get(event.channel).parseWebhook(event.payload).reservation;
       if (!reservation) {
         await this.store.markIgnored(id, `No handler for event type ${event.eventType}`);
         return { status: 'IGNORED' };
@@ -100,7 +142,7 @@ export class WebhookJobHandler implements JobHandler<'webhook-processing'>, OnMo
           QUEUES.RESERVATION_SYNC,
           'acknowledge',
           { kind: 'ACKNOWLEDGE', propertyId: outcome.propertyId, channel: event.channel, externalReservationId: reservation.externalReservationId },
-          { jobId: `ack-${event.channel}-${reservation.externalReservationId}-${outcome.action}`.replace(/[^A-Za-z0-9_-]/g, '_') },
+          { jobId: `ack-${event.channel}-${reservation.externalScope ?? 'global'}-${reservation.externalReservationId}-${outcome.action}`.replace(/[^A-Za-z0-9_-]/g, '_') },
         );
       }
       void this.outbox.flush();

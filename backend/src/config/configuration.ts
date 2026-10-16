@@ -18,10 +18,14 @@ export interface AppConfig {
   encryptionKey: string;
   razorpay: { keyId: string | null; keySecret: string | null; webhookSecret: string | null };
   mockChannel: { enabled: boolean; webhookSecret: string; failureRate: number };
+  /** Configuration-driven providers (database-backed definitions, generic REST connector). Off = only the built-in code adapters. */
+  channelProviders: { enabled: boolean; allowPrivateTargets: boolean };
   bookingEngine: { requirePayment: boolean };
   swagger: { enabled: boolean };
   throttle: { ttlMs: number; limit: number; authLimit: number };
-  publicApi: { keyRateLimit: number; keyRateTtlMs: number; webhookAllowPrivateTargets: boolean; webhookTimeoutMs: number };
+  /** Partner onboarding policy. */
+  partners: { approvalRequired: boolean };
+  publicApi: { docsEnabled: boolean; keyRateLimit: number; keyRateTtlMs: number; webhookAllowPrivateTargets: boolean; webhookTimeoutMs: number };
 }
 
 const bool = (v: string | undefined, dflt: boolean) => (v === undefined || v === '' ? dflt : ['1', 'true', 'yes'].includes(v.toLowerCase()));
@@ -71,6 +75,11 @@ export default function configuration(): AppConfig {
       keySecret: opt(e.RAZORPAY_KEY_SECRET),
       webhookSecret: opt(e.RAZORPAY_WEBHOOK_SECRET),
     },
+    channelProviders: {
+      enabled: bool(e.CHANNEL_PROVIDERS_ENABLED, false),
+      // Same switch as outbound webhooks: loopback/private provider hosts only outside production (SSRF protection).
+      allowPrivateTargets: bool(e.WEBHOOK_ALLOW_PRIVATE_TARGETS, env !== 'production'),
+    },
     mockChannel: {
       enabled: bool(e.MOCK_CHANNEL_ENABLED, env !== 'production'),
       webhookSecret: e.MOCK_CHANNEL_WEBHOOK_SECRET ?? 'mock-channel-dev-secret',
@@ -83,7 +92,12 @@ export default function configuration(): AppConfig {
       limit: int(e.THROTTLE_LIMIT, 120),
       authLimit: int(e.THROTTLE_AUTH_LIMIT, 5),
     },
+    // true (default): a new organization is PENDING_APPROVAL until a platform admin approves it. false: self-service.
+    partners: { approvalRequired: bool(e.PARTNER_APPROVAL_REQUIRED, true) },
     publicApi: {
+      // The versioned /v1 contract and its reference page (/docs/v1) are meant for integrators, so they are served by default, also in
+      // production. The internal API docs (/docs) stay behind SWAGGER_ENABLED.
+      docsEnabled: bool(e.PUBLIC_API_DOCS_ENABLED, true),
       // Per API key (shared across API instances when Redis is used).
       keyRateLimit: int(e.API_KEY_RATE_LIMIT, 300),
       keyRateTtlMs: int(e.API_KEY_RATE_TTL_MS, 60_000),

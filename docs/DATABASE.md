@@ -282,3 +282,9 @@ select * from reservations where overbooked and status in ('CONFIRMED','PENDING'
 - **Tax** is a flat `properties.tax_percent`. Replace it with a rule table if slab-based rules are needed.
 - **Partitioning.** `inventory` has about 1.1 k rows per property per year; a single table is fine for thousands of properties.
   If it grows past hundreds of millions of rows, partition by `date` range.
+
+## Migration 0003: channel providers
+
+Adds `channel_providers`, `channel_provider_versions` (published versions are immutable by trigger), `channel_connection_secrets`, `reconciliation_runs/issues`, `channel_provider_tests`, `ical_export_feeds`;
+extends `channel_connections` (pinned provider version, polling settings and cursor, webhook key); replaces the fixed channel `CHECK` lists by foreign keys to `channel_providers(code)`;
+and adds `external_scope` (zero uuid = the historic global scope) to `channel_listings`, `webhook_events` and `reservations`, so external ids are unique per connection. Additive; verification and recovery in [CHANNEL_FRAMEWORK.md](CHANNEL_FRAMEWORK.md#8-rollout-verification-and-recovery).

@@ -12,13 +12,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, NoPropertyState, QueryState } from '@/components/ui/query-state';
 import { ReservationDrawer } from '@/components/reservations/ReservationDrawer';
 import { ReservationModal } from '@/components/reservations/ReservationModal';
+import { CsvImportDialog } from '@/components/reservations/CsvImportDialog';
 import { useProperty } from '@/lib/auth/property-context';
 import { reservationsApi } from '@/lib/api/reservations';
+import { channelsApi } from '@/lib/api/channels';
 import { useDebounced } from '@/lib/hooks/use-debounced';
 import { formatCurrency } from '@/lib/utils/currency';
 import { formatDateShort, formatISODate } from '@/lib/utils/dates';
 import { getChannelBadge, getStatusBadgeVariant } from '@/lib/utils/formatters';
-import { Search, Plus, Eye } from 'lucide-react';
+import { Search, Plus, Eye, Upload } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 
@@ -45,6 +47,7 @@ export default function ReservationsPage() {
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const q = useDebounced(searchQuery.trim());
 
@@ -65,6 +68,8 @@ export default function ReservationsPage() {
     enabled: !!propertyId,
     placeholderData: (prev) => prev,
   });
+
+  const channelList = useQuery({ queryKey: ['channels', propertyId], queryFn: () => channelsApi.list(propertyId as string), enabled: !!propertyId });
 
   const resetPage = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
@@ -89,9 +94,14 @@ export default function ReservationsPage() {
             Search, filter, check-in guests, assign physical rooms, and manage lifecycle events.
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateModalOpen(true)}>
-          <Plus className="h-4 w-4 mr-1.5" /> New Reservation
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-1.5" /> Import CSV
+          </Button>
+          <Button size="sm" onClick={() => setCreateModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-1.5" /> New Reservation
+          </Button>
+        </div>
       </div>
 
       <Tabs items={TABS} activeId={activeTab} onChange={resetPage(setActiveTab)} />
@@ -126,6 +136,11 @@ export default function ReservationsPage() {
           <option value="WALK_IN">Walk-in</option>
           <option value="PHONE">Phone</option>
           <option value="AGENT">Agent</option>
+          <option value="ICAL">iCal calendars</option>
+          <option value="CSV_IMPORT">CSV import</option>
+          {(channelList.data ?? []).filter((c) => c.configured && c.channel !== 'ICAL').map((c) => (
+            <option key={c.channel} value={c.channel}>{c.name}</option>
+          ))}
         </select>
 
         <Input
@@ -227,6 +242,7 @@ export default function ReservationsPage() {
 
       <ReservationDrawer reservation={selectedReservation} isOpen={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <ReservationModal isOpen={createModalOpen} onClose={() => setCreateModalOpen(false)} />
+      <CsvImportDialog propertyId={propertyId} currency={activeProperty?.currency ?? "INR"} isOpen={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }

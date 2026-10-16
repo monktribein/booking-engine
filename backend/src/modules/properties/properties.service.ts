@@ -102,6 +102,8 @@ export class PropertiesService {
   async update(user: AuthUser, meta: RequestMeta, propertyId: string, dto: UpdatePropertyDto): Promise<Property> {
     const before = await this.get(propertyId);
     if (before.status === PropertyStatus.ARCHIVED) throw new DomainValidationError('Archived properties cannot be edited');
+    // Only the platform lifts a suspension; an owner cannot reactivate a suspended property by editing it.
+    if (before.status === PropertyStatus.SUSPENDED && dto.status !== undefined) throw new ForbiddenError('This property was suspended by the platform.', 'PROPERTY_SUSPENDED');
     const set: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(dto)) {
       if (v === undefined) continue;

@@ -2,8 +2,9 @@ import { Module } from '@nestjs/common';
 import { BookingEngineModule } from '../booking-engine/booking-engine.module';
 import { ApiKeyGuard } from './api-key.guard';
 import { ApiKeyService } from './api-key.service';
+import { ApiUsageService } from './api-usage.service';
 import { ClientWebhookJobHandler } from './client-webhook.handler';
-import { ApiKeysController, WebhookEndpointsController } from './developer.controller';
+import { ApiKeysController, DeveloperController, WebhookEndpointsController } from './developer.controller';
 import { PublicApiV1Controller } from './v1.controller';
 import { PublicApiV1Service } from './v1.service';
 import { WebhookEndpointsService } from './webhook-endpoints.service';
@@ -14,7 +15,7 @@ import { WebhookEndpointsService } from './webhook-endpoints.service';
  */
 @Module({
   imports: [BookingEngineModule],
-  controllers: [PublicApiV1Controller, ApiKeysController, WebhookEndpointsController],
-  providers: [ApiKeyService, ApiKeyGuard, PublicApiV1Service, WebhookEndpointsService, ClientWebhookJobHandler],
+  controllers: [PublicApiV1Controller, ApiKeysController, WebhookEndpointsController, DeveloperController],
+  providers: [ApiKeyService, ApiUsageService, ApiKeyGuard, PublicApiV1Service, WebhookEndpointsService, ClientWebhookJobHandler],
 })
 export class PublicApiModule {}

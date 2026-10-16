@@ -45,6 +45,7 @@ export function PublicBookingClient({
       children: String(searchParams.children),
     });
     if (searchParams.promoCode) qs.set('promo', searchParams.promoCode);
+    if (new URLSearchParams(window.location.search).get('via') === 'tirvona') qs.set('via', 'tirvona');
     router.push(`/booking/${propertySlug}?${qs.toString()}`);
   };
 

@@ -108,7 +108,10 @@ export class CheckInDto {
 
 export class ReservationListQueryDto extends PropertyScopedPageQueryDto {
   @ApiPropertyOptional({ enum: ReservationStatus }) @IsOptional() @IsEnum(ReservationStatus) status?: ReservationStatus;
-  @ApiPropertyOptional({ enum: ReservationSource }) @IsOptional() @IsEnum(ReservationSource) source?: ReservationSource;
+  @ApiPropertyOptional({ description: 'Booking source: a built-in one (DIRECT, AIRBNB, ...) or the code of a configured provider (ACME_STAY, ICAL, CSV_IMPORT)', example: 'DIRECT' })
+  @IsOptional()
+  @Matches(/^[A-Z][A-Z0-9_]{1,31}$/, { message: 'source must be a provider code in capital letters' })
+  source?: string;
   @ApiPropertyOptional({ description: 'Stays overlapping [from, to)' }) @IsOptional() @IsDateOnly() from?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateOnly() to?: string;
   @ApiPropertyOptional({ description: 'Reservation code, external id or guest name' }) @IsOptional() @IsString() @Length(1, 100) q?: string;

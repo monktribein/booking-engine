@@ -4,26 +4,28 @@ import { tokenStorage } from '@/lib/api/client';
 import { assertProductionRuntimeConfig, isDemoMode, UnsafeConfigError } from '@/lib/config';
 import { fail, mockFetch, ok } from './helpers';
 
+// What /api/session/login returns: the access token and the user. The refresh token stays in an HttpOnly cookie on the server side
+// of the app and is never part of this response.
 const session = {
   accessToken: 'jwt-from-server',
-  refreshToken: 'refresh-from-server-0123456789',
   expiresIn: 900,
   user: { _id: 'u1', organizationId: 'o1', name: 'Owner', email: 'owner@example.com', role: 'PROPERTY_OWNER', status: 'ACTIVE', createdAt: '2026-01-01' },
 };
 
 const noSession = () => {
   expect(tokenStorage.getAccess()).toBeNull();
-  expect(tokenStorage.getRefresh()).toBeNull();
   expect(localStorage.getItem('tirvona_user')).toBeNull();
 };
 
 describe('login', () => {
-  it('stores exactly the tokens the backend issued and returns its user', async () => {
-    mockFetch(() => ok(session));
+  it('keeps the access token in memory only (no refresh token, nothing in localStorage) and returns the user', async () => {
+    const f = mockFetch(() => ok(session));
     const res = await authApi.login({ email: 'owner@example.com', password: 'correct-horse-9' });
     expect(res.user.email).toBe('owner@example.com');
     expect(tokenStorage.getAccess()).toBe('jwt-from-server');
-    expect(tokenStorage.getRefresh()).toBe('refresh-from-server-0123456789');
+    expect(f.calls[0].url).toBe('/api/session/login'); // through the app's own server, which holds the refresh-token cookie
+    expect(f.calls[0].headers['X-Tirvona-CSRF']).toBe('1');
+    expect(JSON.stringify({ ...localStorage })).not.toMatch(/jwt-from-server|refresh/i);
   });
 
   it('wrong password: rejects with the backend status/message and creates no session', async () => {
@@ -94,7 +96,6 @@ describe('me / forgot-password / logout', () => {
 
   it('logout always clears local state, even if the server call fails', async () => {
     tokenStorage.setAccess('a');
-    tokenStorage.setRefresh('r');
     localStorage.setItem('tirvona_user', '{}');
     localStorage.setItem('tirvona_property_id', 'p1');
     mockFetch(() => fail(500, 'INTERNAL_ERROR', 'boom'));
@@ -108,7 +109,7 @@ describe('me / forgot-password / logout', () => {
     const f = mockFetch(() => ok({ ok: true }));
     await authApi.logout();
     expect(f.calls[0]).toMatchObject({ method: 'POST' });
-    expect(f.calls[0].url).toMatch(/\/auth\/logout$/);
+    expect(f.calls[0].url).toBe('/api/session/logout'); // revokes on the API and clears the HttpOnly cookie
     expect(f.calls[0].headers.Authorization).toBe('Bearer a');
     expect(tokenStorage.getAccess()).toBeNull();
   });

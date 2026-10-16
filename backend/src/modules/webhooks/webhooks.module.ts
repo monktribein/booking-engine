@@ -30,6 +30,24 @@ export class WebhooksController {
 
   @Public()
   @Throttle({ default: { limit: 600, ttl: 60_000 } })
+  @Post('c/:webhookKey')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Inbound webhook of a configured provider, addressed to one connection',
+    description: 'The key identifies the connection; the signature is verified with that connection\'s own webhook secret over the raw body, and replays outside the provider\'s timestamp tolerance are refused. Unknown keys and bad signatures are refused without detail.',
+  })
+  @ApiBody({ schema: { type: 'object', description: 'Provider-specific payload' } })
+  @ApiStandardErrors({ auth: false, notFound: true })
+  receiveForConnection(@Param('webhookKey') webhookKey: string, @Req() req: Request & { rawBody?: Buffer }) {
+    return this.webhooks.receiveForConnection(webhookKey, {
+      headers: req.headers,
+      rawBody: req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {})),
+      body: req.body,
+    });
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @Post(':channel')
   @HttpCode(200)
   @ApiOperation({

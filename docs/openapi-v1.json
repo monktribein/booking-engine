@@ -148,6 +148,61 @@
         ],
         "type": "object"
       },
+      "ConnectionStatusDto": {
+        "properties": {
+          "capabilities": {
+            "description": "What this connection can do: listings, pushAvailability, pushRates, pullReservations, ...",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "channel": {
+            "description": "Provider code",
+            "example": "ACME_STAY",
+            "type": "string"
+          },
+          "healthy": {
+            "description": "false when the last synchronisation or poll failed; details are for the property owner, not for API clients",
+            "type": "boolean"
+          },
+          "lastSyncAt": {
+            "nullable": true,
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "REST_JSON",
+              "ICAL",
+              "CODE"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DISCONNECTED",
+              "CONNECTING",
+              "CONNECTED",
+              "ERROR",
+              "EXPIRED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "name",
+          "protocol",
+          "status",
+          "capabilities",
+          "lastSyncAt",
+          "healthy"
+        ],
+        "type": "object"
+      },
       "CreateReservationV1Dto": {
         "properties": {
           "adults": {
@@ -165,6 +220,11 @@
           "children": {
             "example": 0,
             "type": "number"
+          },
+          "externalReference": {
+            "description": "Your own id for this booking, unique per property. Sending the same reference again returns the original booking (HTTP 200); the same reference with different content is rejected with 422 EXTERNAL_REFERENCE_REUSED. It is also returned on reads, in webhooks, and can be used to filter the reservation list.",
+            "example": "PMS-48213",
+            "type": "string"
           },
           "guest": {
             "$ref": "#/components/schemas/PublicGuestDto"
@@ -237,11 +297,16 @@
           "phone": {
             "nullable": true,
             "type": "object"
+          },
+          "redacted": {
+            "description": "true: only first name and last initial are shown because the key lacks the guests:read scope (and did not create this booking)",
+            "type": "boolean"
           }
         },
         "required": [
           "firstName",
-          "lastName"
+          "lastName",
+          "redacted"
         ],
         "type": "object"
       },
@@ -591,6 +656,23 @@
         ],
         "type": "object"
       },
+      "RateUpdateV1Dto": {
+        "properties": {
+          "basePrice": {
+            "description": "Nightly base price in minor units (paise)",
+            "example": 350000,
+            "type": "number"
+          },
+          "ratePlanId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ratePlanId",
+          "basePrice"
+        ],
+        "type": "object"
+      },
       "RefundResponseDto": {
         "properties": {
           "_id": {
@@ -659,6 +741,11 @@
           "discount": {
             "type": "number"
           },
+          "externalReference": {
+            "description": "Your own reference, when you supplied one",
+            "nullable": true,
+            "type": "object"
+          },
           "guest": {
             "$ref": "#/components/schemas/GuestV1Dto"
           },
@@ -694,6 +781,7 @@
             "type": "array"
           },
           "source": {
+            "description": "Where the booking came from: DIRECT (property site), TIRVONA (marketplace), API (partner software), an OTA code, or a front-desk source",
             "example": "API",
             "type": "string"
           },
@@ -746,6 +834,112 @@
           "source",
           "createdAt"
         ],
+        "type": "object"
+      },
+      "SetRestrictionsDto": {
+        "properties": {
+          "closed": {
+            "description": "Hard close",
+            "type": "boolean"
+          },
+          "closedToArrival": {
+            "type": "boolean"
+          },
+          "closedToDeparture": {
+            "type": "boolean"
+          },
+          "from": {
+            "example": "2026-10-01",
+            "type": "string"
+          },
+          "maximumStay": {
+            "nullable": true,
+            "type": "object"
+          },
+          "minimumStay": {
+            "description": "null clears it",
+            "nullable": true,
+            "type": "object"
+          },
+          "roomTypeId": {
+            "type": "string"
+          },
+          "stopSell": {
+            "description": "Stop sell on all channels",
+            "type": "boolean"
+          },
+          "to": {
+            "description": "Exclusive",
+            "example": "2026-10-31",
+            "type": "string"
+          }
+        },
+        "required": [
+          "roomTypeId",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "UpdateGuestV1Dto": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "phone": {
+            "example": "+919811111111",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateRatesV1Dto": {
+        "properties": {
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/RateUpdateV1Dto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "updates"
+        ],
+        "type": "object"
+      },
+      "UpdateReservationV1Dto": {
+        "properties": {
+          "adults": {
+            "type": "number"
+          },
+          "checkIn": {
+            "description": "Changing dates re-reserves inventory atomically",
+            "type": "string"
+          },
+          "checkOut": {
+            "type": "string"
+          },
+          "children": {
+            "type": "number"
+          },
+          "guest": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UpdateGuestV1Dto"
+              }
+            ],
+            "description": "Only the fields you send are changed"
+          },
+          "specialRequests": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "VerifyPaymentDto": {
@@ -1208,6 +1402,474 @@
         ]
       }
     },
+    "/v1/properties/{slug}/connections": {
+      "get": {
+        "operationId": "PublicApiV1Controller_connections",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ConnectionStatusDto"
+                      },
+                      "type": "array"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Channel connections of the property: status and what each can do (no credentials, no error details)",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/properties/{slug}/inventory": {
+      "get": {
+        "operationId": "PublicApiV1Controller_inventory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive; at most 366 nights",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "example": "2026-10-15",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "roomTypeId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Inventory per room type and night: total, sold, blocked, available, stop-sell and restrictions",
+        "tags": [
+          "Public API v1"
+        ]
+      },
+      "put": {
+        "description": "Applies minimumStay, maximumStay, closed, closedToArrival, closedToDeparture and/or stopSell to every night in [from, to). Send null to clear a stay limit. Room counts and physical rooms are managed in the dashboard, not through this API. Emits inventory.updated and is pushed to connected channels.",
+        "operationId": "PublicApiV1Controller_setInventory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRestrictionsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Set restrictions and stop-sell for a room type",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/properties/{slug}/rate-plans": {
+      "get": {
+        "operationId": "PublicApiV1Controller_ratePlans",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Rate plans of a property with their nightly base prices (minor units) and cancellation policies",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/properties/{slug}/rates": {
+      "put": {
+        "description": "Sets basePrice (minor units) for up to 100 rate plans in one atomic request. Existing reservations keep the price they were sold at. The change is queued to every connected channel. Repeating the same request changes nothing.",
+        "operationId": "PublicApiV1Controller_updateRates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRatesV1Dto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Update nightly base prices of rate plans",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
     "/v1/reservations": {
       "get": {
         "operationId": "PublicApiV1Controller_list",
@@ -1234,6 +1896,15 @@
                 "CHECKED_OUT",
                 "NO_SHOW"
               ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Your own reference, as sent when creating the booking",
+            "in": "query",
+            "name": "externalReference",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           },
@@ -1630,6 +2301,127 @@
         "tags": [
           "Public API v1"
         ]
+      },
+      "patch": {
+        "description": "Change dates (inventory is released and re-reserved atomically; the price is recalculated for new nights), guest counts, guest contact details or notes. Only bookings made through Tirvona or your own software can be modified; a booking that came from an external channel (Airbnb, Booking.com, Agoda) is changed on that channel and this call fails with 409 CHANNEL_OWNED_RESERVATION. Emits reservation.updated.",
+        "operationId": "PublicApiV1Controller_update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReservationV1Dto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ReservationV1Dto"
+                    },
+                    "success": {
+                      "example": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "ROOM_NOT_AVAILABLE / RESTRICTION_VIOLATION / CHANNEL_OWNED_RESERVATION / INVALID_STATE_TRANSITION"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Modify a reservation",
+        "tags": [
+          "Public API v1"
+        ]
       }
     },
     "/v1/reservations/{code}/cancel": {
@@ -1750,6 +2542,85 @@
           }
         ],
         "summary": "Cancel a reservation",
+        "tags": [
+          "Public API v1"
+        ]
+      }
+    },
+    "/v1/reservations/{code}/payments": {
+      "get": {
+        "operationId": "PublicApiV1Controller_payments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR: the request body, query or path is invalid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_KEY_MISSING / API_KEY_INVALID / API_KEY_REVOKED / API_KEY_EXPIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "API_SCOPE_MISSING: the key lacks the scope this endpoint needs"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "NOT_FOUND"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponseDto"
+                }
+              }
+            },
+            "description": "RATE_LIMITED"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          },
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Payments and refunds of a reservation (status, amounts, provider ids; never card or UPI details or gateway secrets)",
         "tags": [
           "Public API v1"
         ]

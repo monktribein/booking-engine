@@ -4,10 +4,29 @@
 
 export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
+  OPERATIONS_ADMIN = 'OPERATIONS_ADMIN',
   PROPERTY_OWNER = 'PROPERTY_OWNER',
   PROPERTY_MANAGER = 'PROPERTY_MANAGER',
   STAFF = 'STAFF',
   RECEPTION = 'RECEPTION',
+  DEVELOPER = 'DEVELOPER',
+}
+
+/** Where a partner organization stands with the platform. */
+export enum OrganizationStatus {
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  ACTIVE = 'ACTIVE',
+  REJECTED = 'REJECTED',
+  SUSPENDED = 'SUSPENDED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export enum MarketplaceStatus {
+  NOT_LISTED = 'NOT_LISTED',
+  REQUESTED = 'REQUESTED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  SUSPENDED = 'SUSPENDED',
 }
 
 export enum UserStatus {

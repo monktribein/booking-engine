@@ -11,3 +11,5 @@ export * from './channels';
 export * from './rates';
 export * from './reports';
 export * from './booking-engine';
+export * from './developer';
+export * from './partners';

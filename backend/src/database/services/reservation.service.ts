@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { DEFAULT_PENDING_HOLD_MINUTES, MAX_STAY_NIGHTS } from '../constants';
 import { DateInput, addDays, eachNight, formatDateOnly, localDateTimeToInstant, todayIn, toDateOnly } from '../common/dates';
 import { percentOf, sum } from '../common/money';
@@ -11,7 +11,8 @@ import {
   CancellationPenaltyType,
   NotificationChannel,
   NotificationType,
-  OTA_SOURCES,
+  GLOBAL_EXTERNAL_SCOPE,
+  isChannelSource,
   PaymentProvider,
   PaymentStatus,
   PropertyStatus,
@@ -48,11 +49,16 @@ export type { Reservation, ReservationRoom } from '../reservation-store';
 
 export interface CreateReservationInput {
   propertyId: Id;
-  source: ReservationSource;
+  source: ReservationSource | string;
   externalReservationId?: string;
+  /** Connection scope of externalReservationId for configured providers; omitted = the global scope used by built-in channels. */
+  externalScope?: string;
   channelListingId?: Id | null;
   /** Direct bookings: a client-generated UUID so a retried request cannot book twice. */
   idempotencyKey?: string;
+  /** Public API: the API key that created the booking, and the partner software's own reference for it (unique per property). */
+  apiKeyId?: Id | null;
+  partnerReference?: string;
   /** Defaults: OTA/walk-in/phone/agent → CONFIRMED; DIRECT/TIRVONA → PENDING (awaiting payment). */
   status?: ReservationStatus.PENDING | ReservationStatus.CONFIRMED;
   guest: { guestId: Id } | (GuestSnapshot & { country?: string });
@@ -122,7 +128,7 @@ export class ReservationService {
     if (input.rooms.some((r) => !Number.isInteger(r.quantity) || r.quantity < 1)) {
       throw new DomainValidationError('Room quantity must be a positive integer');
     }
-    const isOta = OTA_SOURCES.has(input.source);
+    const isOta = isChannelSource(input.source);
     const isPublicDirect = input.source === ReservationSource.DIRECT || input.source === ReservationSource.TIRVONA;
     if (isOta && !input.externalReservationId) throw new DomainValidationError('externalReservationId is required for OTA bookings');
 
@@ -192,8 +198,11 @@ export class ReservationService {
               reservationCode: newReservationCode(),
               source: input.source,
               externalReservationId: input.externalReservationId ?? null,
+              ...(input.externalScope ? { externalScope: input.externalScope } : {}),
               channelListingId: input.channelListingId ?? null,
               idempotencyKey: input.idempotencyKey ?? null,
+              apiKeyId: input.apiKeyId ?? null,
+              partnerReference: input.partnerReference ?? null,
               status,
               guestId: guest.id,
               guest: j({ firstName: guest.firstName, lastName: guest.lastName, email: guest.email ?? undefined, phone: guest.phone ?? undefined }),
@@ -357,8 +366,8 @@ export class ReservationService {
   }
 
   /** OTA cancellations arrive with the channel's ID, not ours. */
-  async cancelByExternalId(source: ReservationSource, externalReservationId: string, reason: string) {
-    const r = await this.db.selectFrom('reservations').select(['id', 'propertyId']).where('source', '=', source).where('externalReservationId', '=', externalReservationId).executeTakeFirst();
+  async cancelByExternalId(source: string, externalReservationId: string, reason: string, externalScope: string = GLOBAL_EXTERNAL_SCOPE) {
+    const r = await this.db.selectFrom('reservations').select(['id', 'propertyId']).where('source', '=', source).where('externalScope', '=', externalScope).where('externalReservationId', '=', externalReservationId).executeTakeFirst();
     if (!r) throw new NotFoundError(`${source} reservation`, externalReservationId);
     return this.cancelReservation({ propertyId: r.propertyId, reservationId: r.id, reason });
   }
@@ -546,7 +555,7 @@ export class ReservationService {
     if (!property) throw new NotFoundError('Property', input.propertyId);
     const current = await findReservation(this.db, { id: input.reservationId, propertyId: input.propertyId });
     if (!current) throw new NotFoundError('Reservation', input.reservationId);
-    const isOta = OTA_SOURCES.has(current.source as ReservationSource);
+    const isOta = isChannelSource(current.source);
     const newIn = input.checkIn ? toDateOnly(input.checkIn) : current.checkIn;
     const newOut = input.checkOut ? toDateOnly(input.checkOut) : current.checkOut;
     const datesChanged = newIn.getTime() !== current.checkIn.getTime() || newOut.getTime() !== current.checkOut.getTime();
@@ -665,17 +674,19 @@ export class ReservationService {
         before,
         after: { checkIn: r.checkIn, checkOut: r.checkOut, adults: r.adults, children: r.children, total: r.total },
       });
+      await this.emitUpdated(tx, r, datesChanged ? 'dates' : 'details');
       return r;
     });
   }
 
   /** OTA modifications arrive with the channel's ID. */
   async modifyByExternalId(
-    source: ReservationSource,
+    source: string,
     externalReservationId: string,
     changes: Omit<Parameters<ReservationService['updateReservation']>[0], 'propertyId' | 'reservationId'>,
+    externalScope: string = GLOBAL_EXTERNAL_SCOPE,
   ) {
-    const r = await this.db.selectFrom('reservations').select(['id', 'propertyId']).where('source', '=', source).where('externalReservationId', '=', externalReservationId).executeTakeFirst();
+    const r = await this.db.selectFrom('reservations').select(['id', 'propertyId']).where('source', '=', source).where('externalScope', '=', externalScope).where('externalReservationId', '=', externalReservationId).executeTakeFirst();
     if (!r) throw new NotFoundError(`${source} reservation`, externalReservationId);
     return this.updateReservation({ ...changes, propertyId: r.propertyId, reservationId: r.id });
   }
@@ -729,6 +740,7 @@ export class ReservationService {
         entityId: r.id,
         after: { rooms: r.reservationRooms.map((l) => l.roomNumber) },
       });
+      await this.emitUpdated(tx, r, 'check_in');
       return r;
     });
   }
@@ -765,6 +777,7 @@ export class ReservationService {
         entityId: r.id,
         after: { early: today < r.checkOut, inventoryReleasedFrom: r.inventoryReleasedFrom },
       });
+      await this.emitUpdated(tx, r, 'check_out');
       return { reservation: r, balanceDue: Math.max(0, r.total - (r.amountPaid - r.amountRefunded)) };
     });
   }
@@ -794,6 +807,7 @@ export class ReservationService {
         entityId: r.id,
         after: { inventoryReleasedFrom: r.inventoryReleasedFrom },
       });
+      await this.emitUpdated(tx, r, 'no_show');
       return r;
     });
   }
@@ -818,6 +832,7 @@ export class ReservationService {
         before: { roomNumber: previous },
         after: { roomNumber },
       });
+      await this.emitUpdated(tx, r, 'room_assigned');
       return r;
     });
   }
@@ -870,9 +885,21 @@ export class ReservationService {
 
   // ================================================================ internals
 
+  /** `reservation.updated` for a change after booking (dates, details, room assignment, check-in/out, no-show). `change` says which. */
+  private async emitUpdated(tx: Db, r: Reservation, change: 'dates' | 'details' | 'room_assigned' | 'check_in' | 'check_out' | 'no_show') {
+    const property = await tx.selectFrom('properties').select(['id', 'organizationId', 'slug', 'name']).where('id', '=', r.propertyId).executeTakeFirstOrThrow();
+    // A fresh id per update: two edits of one reservation are two events. The unique (endpoint, event id) constraint still
+    // makes a repeated insert of the SAME event a no-op.
+    await this.clientEvents.emit(tx, { type: 'reservation.updated', property, reservation: r, discriminator: `${change}:${randomUUID()}`, extra: { change } });
+  }
+
   private async findIdempotent(input: CreateReservationInput): Promise<Reservation | null> {
     if (input.externalReservationId) {
-      return findReservation(this.db, { source: input.source, externalReservationId: input.externalReservationId });
+      return findReservation(this.db, { source: input.source, externalReservationId: input.externalReservationId, externalScope: input.externalScope });
+    }
+    if (input.partnerReference) {
+      const byRef = await findReservation(this.db, { propertyId: input.propertyId, partnerReference: input.partnerReference });
+      if (byRef) return byRef;
     }
     if (input.idempotencyKey) {
       return findReservation(this.db, { propertyId: input.propertyId, idempotencyKey: input.idempotencyKey });

@@ -62,3 +62,35 @@ dashboard / reservation changes
 
 `MockChannelAdapter` simulates an OTA, including injectable failures (`MOCK_CHANNEL_FAILURE_RATE`) and signed webhooks.
 Use it to test the platform; never present it as a customer-facing integration.
+
+## Requests, approvals and connections are three different things
+
+1. **Integration request** (`POST /integration-requests`, partner): "we want Airbnb for this property". Reviewed by the platform (`/admin/integrations`).
+2. **Platform approval**: a record that the partner may proceed. Nothing is connected by it.
+3. **Connection**: credentials + mappings stored by the partner under Channel Manager, usable only when an adapter for that channel is *available* and certified.
+
+Until step 3 exists for a channel, the UI must say "not connected". Partners without ACTIVE status cannot file requests.
+
+## Per-channel partner requirements (outside this repository)
+
+| Channel | What Tirvona must obtain first | What each property owner provides | How it is verified |
+| --- | --- | --- | --- |
+| Airbnb | Acceptance into the Airbnb Software Connectivity Partner programme; API credentials and documentation | Authorizes Tirvona via Airbnb's OAuth for their listing | Airbnb's certification/sandbox checklist |
+| Booking.com | Connectivity Partner Programme membership; machine credentials and certification | Grants the connectivity provider access to their hotel ID in the Extranet | Booking.com certification tests |
+| Agoda | Agoda connectivity partner onboarding; API key and test environment | Agoda property ID and supplier approval | Agoda's integration test cases |
+
+Until those exist, the adapters stay stubs. Record certification evidence (dates, test run ids) in the PR that enables an adapter.
+
+## Record ownership and conflicts
+
+* Channel-originated reservations are owned by the channel: they cannot be modified or cancelled through the public API (`409 CHANNEL_OWNED_RESERVATION`); staff changes that the channel must know about are pushed as adapter operations, never as silent local edits.
+* Inbound events are idempotent on `(channel, externalEventId)`. Reordered or duplicated events converge because handlers act on current state.
+* Overbooking: the first writer wins in the single inventory path; the loser is surfaced as a sync error for operations to resolve (Admin → Operations).
+* The channel-manager adapter contract (`ChannelAdapter`) is internal and separate from `/v1`; partner software never implements it.
+
+## Configuration-driven providers (new)
+
+A platform with a compatible REST/JSON API no longer needs an adapter class: it is described as data, published by a super admin, and connected by property owners with
+their own credentials. iCal calendars and CSV imports are built in. See [CHANNEL_FRAMEWORK.md](CHANNEL_FRAMEWORK.md). The code-adapter contract on this page is still the
+right tool for platforms that need partner approval, OAuth consent, XML/SOAP or business rules that can not be written as data. Registration of code adapters is unchanged
+(`channel-registry.ts`); `forProperty` / `forConnection` additionally resolve configured providers from the database when `CHANNEL_PROVIDERS_ENABLED` is on.

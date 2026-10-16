@@ -55,6 +55,10 @@ async function restore(pool: Pool, dir: string): Promise<void> {
     for (const file of readdirSync(dir).filter((f) => f.endsWith('.ndjson'))) {
       const table = file.replace(/\.ndjson$/, '');
       const text = readFileSync(path.join(dir, file), 'utf8');
+      // A fresh database already holds the reference rows its migrations insert (for example the built-in channel providers). The backup carries
+      // those same rows with their original ids, which other tables point at, so they are replaced rather than duplicated.
+      const seeded = Number((await client.query(`select count(*)::int as n from "${table}"`)).rows[0].n);
+      if (seeded > 0) await client.query(`delete from "${table}"`);
       if (!text) continue;
       const rows = text.split('\n').map((l) => JSON.parse(l));
       for (let i = 0; i < rows.length; i += 500) {

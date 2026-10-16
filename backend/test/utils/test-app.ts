@@ -67,6 +67,10 @@ export async function createTestApp(env: Record<string, string> = {}): Promise<T
     JWT_REFRESH_SECRET: randomBytes(32).toString('hex'),
     ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     MOCK_CHANNEL_ENABLED: 'true',
+    CHANNEL_PROVIDERS_ENABLED: 'true',
+    WEBHOOK_ALLOW_PRIVATE_TARGETS: 'true',
+    // Registration is self-service in tests; the approval workflow has its own suite that turns this on.
+    PARTNER_APPROVAL_REQUIRED: 'false',
     THROTTLE_LIMIT: '100000',
     THROTTLE_AUTH_LIMIT: '100000',
     API_URL: 'http://api.test',

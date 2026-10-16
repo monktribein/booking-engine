@@ -7,7 +7,7 @@ import React from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { authApi } from '@/lib/api/auth';
+import { liveLogin } from './session';
 import { tokenStorage } from '@/lib/api/client';
 
 vi.mock('next/navigation', () => ({
@@ -49,7 +49,7 @@ function mount(ui: React.ReactElement) {
 const T = { timeout: 15_000 };
 
 beforeAll(async () => {
-  await authApi.login({ email: EMAIL, password: PASSWORD });
+  await liveLogin({ email: EMAIL, password: PASSWORD });
 });
 afterEach(() => cleanup());
 

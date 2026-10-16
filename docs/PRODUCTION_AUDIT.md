@@ -182,3 +182,11 @@ The verdict is unchanged: **NO-GO until the manual live-environment items in sec
 5. The user's own sandbox on ports 3000/3001, if still running, is the old MongoDB build and must be restarted after `npm run build`.
 
 **New operational risks to know about:** the app role must own the tables or have `BYPASSRLS` (the `postgres` role does); a different role would see no rows because RLS has no policies. Connection count is now bounded by Supabase's plan: size `DATABASE_POOL_MAX` or use the transaction pooler. Migrations must run on a direct or session-pooler connection. Forward-only migrations: never edit an applied file.
+
+## Addendum: multi-tenant partner platform (migration 0002)
+
+Added: partner approval lifecycle, marketplace consent + platform approval, platform admin console (`/admin`), developer role, key rotation/usage, scoped and redacted public API, signed webhooks incl. `reservation.updated` / `inventory.updated`, guest self-cancellation, cookie-based sessions through the Next BFF.
+
+Verified locally (embedded PostgreSQL, inline queue driver): backend 290 tests passed / 10 skipped (the skipped ones need real Redis), `db:verify`, restore drill, `openapi:check`, `check:secrets`, SDK 13 tests + build, frontend 249 unit tests, lint, production build, 29 Playwright browser journeys.
+
+Not verified / blocked: BullMQ against a real Redis, Docker/compose, CI workflow runs, migration 0002 on the hosted Supabase database (apply with `npm run db:migrate` before deploying), real Razorpay, SMTP, and the Airbnb / Booking.com / Agoda adapters (need each OTA's partner approval; see CHANNEL_ADAPTERS.md).

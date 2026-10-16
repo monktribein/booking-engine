@@ -60,7 +60,8 @@ describe('Developer settings: API keys', () => {
     expect(alert).toHaveTextContent(FULL_KEY);
     expect(alert).toHaveTextContent(/shown only once/i);
     const post = m.calls.find((c) => c.method === 'POST' && path(c) === '/api-keys')!;
-    expect(JSON.parse(post.body!)).toEqual({ name: 'Website', scopes: ['properties:read', 'availability:read', 'reservations:read', 'reservations:write'] });
+    // Least privilege: a new key is read-only and sees no personal data unless the owner ticks more.
+    expect(JSON.parse(post.body!)).toEqual({ name: 'Website', scopes: ['properties:read', 'availability:read', 'rates:read', 'inventory:read', 'reservations:read'] });
 
     // the list refreshed and holds only the prefix; dismissing removes the key from the page for good
     expect(await screen.findByText('Website')).toBeInTheDocument();
@@ -76,7 +77,7 @@ describe('Developer settings: API keys', () => {
     expect(submit).toBeDisabled();
     await user.type(screen.getByLabelText(/Key name/), 'Valid name');
     expect(submit).toBeEnabled();
-    for (const box of screen.getAllByRole('checkbox').slice(0, 4)) if ((box as HTMLInputElement).checked) await user.click(box);
+    for (const box of screen.getAllByRole('checkbox').slice(0, 10)) if ((box as HTMLInputElement).checked) await user.click(box);
     expect(submit).toBeDisabled();
   });
 
@@ -87,7 +88,7 @@ describe('Developer settings: API keys', () => {
     await user.type(await screen.findByLabelText(/Key name/), 'Website');
     await user.click(screen.getByRole('button', { name: 'Create API key' }));
     expect(await screen.findByText('Your role does not allow this action')).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain('tvk_');
+    expect(document.body.textContent).not.toMatch(/tvk_[a-z0-9]{8}_/); // the samples show a placeholder, never a real key
   });
 
   it('revokes only after confirmation', async () => {
