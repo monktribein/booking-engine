@@ -49,7 +49,7 @@ export function Dialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -59,13 +59,13 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         className={cn(
-          'relative w-full rounded-2xl bg-white p-6 shadow-2xl transition-all dark:bg-slate-900 border border-slate-200 dark:border-slate-800 z-10',
+          'relative w-full rounded-3xl bg-white p-6 sm:p-7 shadow-2xl transition-all border border-stone-200 z-10',
           maxWidths[maxWidth]
         )}
       >
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+          className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-stone-100 hover:text-slate-700 transition-colors cursor-pointer"
         >
           <X className="h-5 w-5" />
           <span className="sr-only">Close</span>
@@ -73,9 +73,9 @@ export function Dialog({
 
         {title && (
           <div className="mb-4 pr-6">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+            <h2 className="text-lg font-bold text-slate-900">{title}</h2>
             {description && (
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+              <p className="mt-1 text-sm text-slate-500">{description}</p>
             )}
           </div>
         )}

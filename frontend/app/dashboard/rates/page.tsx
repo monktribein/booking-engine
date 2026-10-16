@@ -142,14 +142,14 @@ export default function RatesManagementPage() {
       >
         {() => (
           <>
-            <div className="flex items-center gap-2 overflow-x-auto bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs" role="tablist" aria-label="Room type">
+            <div className="flex items-center gap-1.5 overflow-x-auto bg-stone-100 dark:bg-slate-800 p-1 rounded-xl text-xs" role="tablist" aria-label="Room type">
               {activeTypes.map((rt) => (
                 <button
                   key={rt._id}
                   role="tab"
                   aria-selected={roomTypeId === rt._id}
                   onClick={() => setSelectedRoomTypeId(rt._id)}
-                  className={`px-4 py-2 rounded-lg font-semibold cursor-pointer transition-all whitespace-nowrap ${roomTypeId === rt._id ? 'bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                  className={`px-4 py-1.5 rounded-lg font-bold cursor-pointer transition-all whitespace-nowrap ${roomTypeId === rt._id ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-stone-200/60' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
                 >
                   {rt.name}
                 </button>
@@ -163,28 +163,32 @@ export default function RatesManagementPage() {
               empty={<EmptyState title="No rate plans for this room type" action={<Button size="sm" onClick={() => openEdit()}>New Rate Plan</Button>} />}
             >
               {() => (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {plansForType.map((plan) => (
-                    <Card key={plan._id} className="shadow-xs overflow-hidden">
-                      <CardHeader className="bg-slate-50/70 dark:bg-slate-800/40 pb-3 flex flex-row items-start justify-between">
-                        <div>
-                          <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 mb-1">Code: {plan.code}</div>
-                          <CardTitle className="text-base font-bold">{plan.name}</CardTitle>
-                          <CardDescription>{plan.cancellationPolicy?.description || '-'}</CardDescription>
+                    <Card key={plan._id} className="rounded-3xl border border-stone-200/90 hover:border-[#a8c6e5] transition-all overflow-hidden flex flex-col justify-between bg-white dark:bg-slate-900">
+                      <CardHeader className="bg-stone-50/60 dark:bg-slate-800/40 p-4 border-b border-stone-100 dark:border-slate-800 flex flex-row items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="inline-flex items-center gap-1.5 rounded-full bg-[#c1d8f0]/40 border border-[#a8c6e5]/60 px-2 py-0.5 text-[10px] font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+                            Code: {plan.code}
+                          </div>
+                          <CardTitle className="text-sm font-bold truncate text-slate-900 dark:text-slate-100">{plan.name}</CardTitle>
+                          <CardDescription className="text-xs text-slate-500 line-clamp-2 mt-0.5">
+                            {plan.cancellationPolicy?.description || '-'}
+                          </CardDescription>
                         </div>
-                        <div className="text-right">
-                          <div className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(plan.basePrice, plan.currency)}</div>
-                          <span className="text-[10px] text-slate-400 font-medium">Base Nightly Rate</span>
+                        <div className="text-right shrink-0">
+                          <div className="text-base font-black text-slate-900 dark:text-slate-100">{formatCurrency(plan.basePrice, plan.currency)}</div>
+                          <span className="text-[10px] text-slate-400 font-medium">Base Nightly</span>
                         </div>
                       </CardHeader>
-                      <CardContent className="pt-4 flex items-center justify-between">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(plan)}>
+                      <CardContent className="p-3.5 flex items-center justify-between">
+                        <Button variant="outline" size="sm" onClick={() => openEdit(plan)} className="h-8 text-xs rounded-xl">
                           <Edit className="h-3.5 w-3.5 mr-1" /> Edit
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-rose-600"
+                          className="h-8 text-xs text-rose-600 hover:text-rose-700"
                           disabled={archiveMutation.isPending}
                           onClick={() => {
                             if (window.confirm(`Archive rate plan "${plan.name}"?`)) archiveMutation.mutate(plan._id);
@@ -202,11 +206,11 @@ export default function RatesManagementPage() {
         )}
       </QueryState>
 
-      <Card className="shadow-xs">
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
+      <Card className="rounded-3xl border border-stone-200/90 overflow-hidden bg-white dark:bg-slate-900">
+        <CardHeader className="flex flex-row items-center justify-between p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800">
           <div>
             <CardTitle className="text-base font-bold flex items-center gap-2">
-              <Tag className="h-4 w-4 text-indigo-600" /> Promotions
+              <Tag className="h-4 w-4 text-slate-700" /> Promotions
             </CardTitle>
             <CardDescription>Guests enter a promo code on the booking page.</CardDescription>
           </div>

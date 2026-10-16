@@ -8,6 +8,16 @@ import { configureApp } from './common/app-setup';
 import { JsonLogger, useJsonLogs } from './common/json-logger';
 import type { AppConfig } from './config/configuration';
 
+// Global error handlers for network disconnects / resets
+process.on('uncaughtException', (err: any) => {
+  if (err?.code === 'ECONNRESET' || err?.message?.includes('ECONNRESET')) {
+    new Logger('Process').warn(`Handled socket disconnect (ECONNRESET): ${err.message}`);
+    return;
+  }
+  new Logger('Process').error(`Uncaught exception: ${err?.stack || err}`);
+  process.exit(1);
+});
+
 async function bootstrap() {
   // bodyParser:false + rawBody:true: parsers are registered by configureApp (in a fixed order)
   // and req.rawBody is kept for webhook signature verification.

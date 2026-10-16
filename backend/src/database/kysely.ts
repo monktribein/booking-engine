@@ -71,6 +71,8 @@ export function createPool(opts: DatabaseOptions): Pool {
     connectionTimeoutMillis: 10_000,
     application_name: opts.applicationName ?? 'tirvona-api',
     ssl,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
   });
   // An idle connection can be cut by the server (restart, failover, shutdown). Without a listener Node treats that as an uncaught
   // 'error' event and kills the process; the pool simply drops the broken client and opens a new one on the next query.

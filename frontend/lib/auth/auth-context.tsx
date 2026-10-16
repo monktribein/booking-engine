@@ -23,7 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => tokenStorage.getUser<User>());
   // Starts true: the stored token is verified against the backend before anything renders as signed in.
   const [isLoading, setIsLoading] = useState(true);
   const [sessionError, setSessionError] = useState<ApiError | null>(null);
@@ -36,15 +36,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function initAuth() {
       // The refresh token is an HttpOnly cookie we cannot read; the server leaves a readable flag when a session exists.
       if (!tokenStorage.getAccess() && !hasSessionHint()) {
+        setUser(null);
+        tokenStorage.clear();
         setIsLoading(false);
         return;
       }
       try {
-        if (!tokenStorage.getAccess() && !(await restoreSession())) return; // the session ended: stay signed out
-        setUser(await authApi.me());
+        if (!tokenStorage.getAccess() && !(await restoreSession())) {
+          setUser(null);
+          return;
+        }
+        const me = await authApi.me();
+        setUser(me);
+        tokenStorage.setUser(me);
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
           tokenStorage.clear(); // token is definitively invalid
+          setUser(null);
         } else {
           setSessionError(err instanceof ApiError ? err : new ApiError('Could not verify your session.', 'UNKNOWN_ERROR', 0));
         }
@@ -55,10 +63,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void initAuth();
   }, []);
 
+  // Sync across open browser tabs
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'tirvona_at' || e.key === 'tirvona_user') {
+        const storedUser = tokenStorage.getUser<User>();
+        setUser(storedUser);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // The API client fires this when a refresh is refused: drop the in-memory user too.
   useEffect(() => {
     const onExpired = () => {
       setUser(null);
+      tokenStorage.clear();
       queryClient.clear(); // nothing from the ended session may stay cached
     };
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
@@ -83,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await authApi.logout();
     } finally {
+      tokenStorage.clear();
       setUser(null);
       queryClient.clear();
     }

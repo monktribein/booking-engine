@@ -19,7 +19,7 @@ import {
   ExternalLink,
   Code2,
   LogOut,
-  Sparkles,
+  Hotel,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useProperty } from '@/lib/auth/property-context';
@@ -51,28 +51,28 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
       {/* Mobile backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-xs lg:hidden"
           onClick={onClose}
         />
       )}
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 transition-transform duration-200 ease-in-out lg:static lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-stone-200 bg-white transition-transform duration-200 ease-in-out lg:static lg:translate-x-0',
           isOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Brand Header */}
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 px-5 dark:border-slate-800">
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-md shadow-indigo-500/20">
-              <Sparkles className="h-5 w-5" />
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-stone-100 px-5">
+          <Link href="/dashboard" className="flex items-center gap-2.5 group">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5] transition-transform group-hover:scale-105">
+              <Hotel className="h-5 w-5" />
             </div>
             <div className="flex flex-col">
-              <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
+              <span className="text-base font-bold tracking-tight text-slate-900">
                 Tirvona
               </span>
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Hospitality PMS
               </span>
             </div>
@@ -98,18 +98,16 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
                 href={item.href}
                 onClick={onClose}
                 className={cn(
-                  'group flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-150',
+                  'group flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-150',
                   isActive
-                    ? 'bg-indigo-50 text-indigo-700 font-semibold dark:bg-indigo-950/50 dark:text-indigo-300 shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/80 dark:hover:text-slate-100'
+                    ? 'bg-[#c1d8f0]/40 text-slate-900 font-bold border border-[#a8c6e5]/60'
+                    : 'text-slate-600 hover:bg-stone-100 hover:text-slate-900'
                 )}
               >
                 <Icon
                   className={cn(
                     'h-4 w-4 shrink-0 transition-colors',
-                    isActive
-                      ? 'text-indigo-600 dark:text-indigo-400'
-                      : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300'
+                    isActive ? 'text-slate-900' : 'text-slate-400 group-hover:text-slate-700'
                   )}
                 />
                 <span>{item.name}</span>
@@ -124,16 +122,13 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
           <Link
             href={`/stays/${activeProperty!.slug}`}
             target="_blank"
-            className="group flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100/70 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50 transition-colors"
+            className="group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-stone-50 hover:bg-[#c1d8f0]/30 border border-stone-200/80 hover:border-[#a8c6e5] transition-all"
           >
             <span className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
               Guest Booking Engine
             </span>
-            <ExternalLink className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            <ExternalLink className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-800 transition-colors" />
           </Link>
           ) : (
             <Link
@@ -147,17 +142,17 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
         </nav>
 
         {/* User Profile & Sign Out Footer */}
-        <div className="border-t border-slate-200/80 p-3 dark:border-slate-800">
-          <div className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/50">
-            <Link href="/dashboard/profile" onClick={onClose} title="Your profile" className="flex items-center gap-2.5 min-w-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 font-bold text-xs text-white">
+        <div className="border-t border-stone-100 p-3">
+          <div className="flex items-center justify-between rounded-2xl bg-stone-50 border border-stone-200/60 p-2.5">
+            <Link href="/dashboard/profile" onClick={onClose} title="Your profile" className="flex items-center gap-2.5 min-w-0 rounded-lg">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 font-bold text-xs border border-[#a8c6e5]">
                 {user?.name ? user.name[0].toUpperCase() : 'O'}
               </div>
               <div className="flex flex-col truncate">
-                <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
-                  {user?.name ?? ''}
+                <span className="text-xs font-bold text-slate-900 truncate">
+                  {user?.name ?? 'Hotel Owner'}
                 </span>
-                <span className="text-[10px] text-slate-400 capitalize truncate">
+                <span className="text-[10px] text-slate-500 capitalize truncate">
                   {user?.role ? user.role.replace('_', ' ').toLowerCase() : 'Owner'}
                 </span>
               </div>
@@ -166,7 +161,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
             <button
               onClick={() => logout()}
               title="Sign Out"
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
+              className="rounded-xl p-1.5 text-slate-400 hover:bg-stone-200 hover:text-slate-800 transition-colors cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
             </button>

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
 import { PhysicalRoom, RoomStatus, RoomType } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,10 +17,11 @@ import { errorMessage } from '@/lib/utils/errors';
 import { getRoomStatusBadge } from '@/lib/utils/formatters';
 import { roomsApi } from '@/lib/api/rooms';
 import { roomTypesApi } from '@/lib/api/room-types';
-import { Plus, Edit } from 'lucide-react';
+import { Plus, Edit, ChevronDown, ChevronUp } from 'lucide-react';
 
 /** Statuses the backend lets staff set (OCCUPIED is driven by check-in / check-out). */
 const SETTABLE_STATUSES = [RoomStatus.AVAILABLE, RoomStatus.CLEANING, RoomStatus.MAINTENANCE, RoomStatus.BLOCKED];
+const INITIAL_ROOM_LIMIT = 12;
 
 interface RoomsData {
   roomTypes: RoomType[];
@@ -31,6 +33,7 @@ export default function RoomsManagementPage() {
   const propertyId = activeProperty?._id;
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string>('all');
+  const [showAllRooms, setShowAllRooms] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Room types and their rooms are loaded together so a partial result is never shown as complete.
@@ -185,7 +188,7 @@ export default function RoomsManagementPage() {
                     const roomsOfType = rooms.filter((r) => r.roomTypeId === rt._id);
                     const availableCount = roomsOfType.filter((r) => r.status === RoomStatus.AVAILABLE).length;
                     return (
-                      <Card key={rt._id} className="relative overflow-hidden hover:shadow-md transition-all">
+                      <Card key={rt._id} className="relative overflow-hidden border-stone-200/90 rounded-3xl hover:border-[#a8c6e5] transition-all">
                         <CardHeader className="pb-2">
                           <div className="flex items-start justify-between">
                             <div>
@@ -193,7 +196,7 @@ export default function RoomsManagementPage() {
                               <CardDescription>Max {rt.maxOccupancy} Guests Capacity</CardDescription>
                             </div>
                             <div className="text-right">
-                              <div className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">{formatCurrency(rt.basePrice, rt.currency)}</div>
+                              <div className="text-base font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(rt.basePrice, rt.currency)}</div>
                               <span className="text-[10px] text-slate-400">base / night</span>
                             </div>
                           </div>
@@ -248,12 +251,15 @@ export default function RoomsManagementPage() {
                     <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Physical Rooms & Housekeeping Status</h2>
                     <p className="text-xs text-slate-500">Select a room to change its operational status.</p>
                   </div>
-                  <div className="flex items-center gap-1 overflow-x-auto bg-slate-100 dark:bg-slate-800 p-1 rounded-lg text-xs" role="tablist" aria-label="Filter rooms by type">
+                  <div className="flex items-center gap-1 overflow-x-auto bg-stone-100 dark:bg-slate-800 p-1 rounded-xl text-xs" role="tablist" aria-label="Filter rooms by type">
                     <button
                       role="tab"
                       aria-selected={activeTab === 'all'}
-                      onClick={() => setActiveTab('all')}
-                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${activeTab === 'all' ? 'bg-white dark:bg-slate-700 text-slate-900 font-bold shadow-xs' : 'text-slate-600'}`}
+                      onClick={() => {
+                        setActiveTab('all');
+                        setShowAllRooms(false);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-colors ${activeTab === 'all' ? 'bg-white dark:bg-slate-700 text-slate-900 font-bold' : 'text-slate-600'}`}
                     >
                       All ({rooms.length})
                     </button>
@@ -262,8 +268,11 @@ export default function RoomsManagementPage() {
                         key={rt._id}
                         role="tab"
                         aria-selected={activeTab === rt._id}
-                        onClick={() => setActiveTab(rt._id)}
-                        className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors whitespace-nowrap ${activeTab === rt._id ? 'bg-white dark:bg-slate-700 text-slate-900 font-bold shadow-xs' : 'text-slate-600'}`}
+                        onClick={() => {
+                          setActiveTab(rt._id);
+                          setShowAllRooms(false);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-colors whitespace-nowrap ${activeTab === rt._id ? 'bg-white dark:bg-slate-700 text-slate-900 font-bold' : 'text-slate-600'}`}
                       >
                         {rt.name}
                       </button>
@@ -274,30 +283,59 @@ export default function RoomsManagementPage() {
                 {filtered.length === 0 ? (
                   <EmptyState title="No rooms" hint="Add physical rooms to this room type." />
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-3">
-                    {filtered.map((room) => {
-                      const badge = getRoomStatusBadge(room.status);
-                      const rt = roomTypes.find((t) => t._id === room.roomTypeId);
-                      return (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-3">
+                      <AnimatePresence mode="popLayout">
+                        {(showAllRooms ? filtered : filtered.slice(0, INITIAL_ROOM_LIMIT)).map((room) => {
+                          const badge = getRoomStatusBadge(room.status);
+                          const rt = roomTypes.find((t) => t._id === room.roomTypeId);
+                          return (
+                            <motion.button
+                              key={room._id}
+                              layout
+                              initial={{ opacity: 0, scale: 0.94 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.94 }}
+                              transition={{ duration: 0.2 }}
+                              type="button"
+                              onClick={() => openStatus(room)}
+                              aria-label={`Room ${room.roomNumber}, ${badge.label}. Change status`}
+                              className="group relative flex flex-col justify-between p-3.5 rounded-2xl border border-stone-200/90 hover:border-[#a8c6e5] bg-white dark:bg-slate-900 transition-all cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-slate-900"
+                            >
+                              <div className="flex items-center justify-between mb-2 w-full">
+                                <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{room.roomNumber}</span>
+                                <span className={`h-2.5 w-2.5 rounded-full ${badge.dot}`} />
+                              </div>
+                              <div className="text-[11px] text-slate-500 truncate mb-2">
+                                {rt?.name || 'Room'} • Fl {room.floor || '-'}
+                              </div>
+                              <div className={`mt-auto w-full px-2 py-1 rounded-md text-[10px] font-semibold text-center ${badge.bg} ${badge.text}`}>{badge.label}</div>
+                            </motion.button>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+
+                    {filtered.length > INITIAL_ROOM_LIMIT && (
+                      <div className="pt-3 flex justify-center">
                         <button
-                          key={room._id}
                           type="button"
-                          onClick={() => openStatus(room)}
-                          aria-label={`Room ${room.roomNumber}, ${badge.label}. Change status`}
-                          className="group relative flex flex-col justify-between p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-indigo-600"
+                          onClick={() => setShowAllRooms(!showAllRooms)}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] px-6 py-2.5 text-xs transition-all hover:-translate-y-0.5 cursor-pointer"
                         >
-                          <div className="flex items-center justify-between mb-2 w-full">
-                            <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{room.roomNumber}</span>
-                            <span className={`h-2.5 w-2.5 rounded-full ${badge.dot}`} />
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate mb-2">
-                            {rt?.name || 'Room'} • Fl {room.floor || '-'}
-                          </div>
-                          <div className={`mt-auto w-full px-2 py-1 rounded-md text-[10px] font-semibold text-center ${badge.bg} ${badge.text}`}>{badge.label}</div>
+                          {showAllRooms ? (
+                            <>
+                              Show Less <ChevronUp className="h-4 w-4" />
+                            </>
+                          ) : (
+                            <>
+                              View All ({filtered.length} Rooms) <ChevronDown className="h-4 w-4" />
+                            </>
+                          )}
                         </button>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </>

@@ -89,25 +89,24 @@ export default function GuestsPage() {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Guest Directory</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Search guests, manage contact details and see their stays.</p>
         </div>
-        <Button size="sm" onClick={() => { setFormError(null); setCreateOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1.5" /> Add Guest
-        </Button>
-      </div>
-
-      <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs">
-        <div className="relative max-w-md">
-          <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
-          <Input
-            aria-label="Search guests"
-            placeholder="Search by name, phone, email..."
-            className="pl-9 text-xs h-9"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-          />
+        <div className="flex items-center gap-2.5">
+          <div className="relative w-64 sm:w-80">
+            <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
+            <Input
+              aria-label="Search guests"
+              placeholder="Search by name, phone, email..."
+              className="pl-9 text-xs h-9 rounded-xl border-stone-200 bg-white dark:bg-slate-900"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            />
+          </div>
+          <Button size="sm" onClick={() => { setFormError(null); setCreateOpen(true); }} className="h-9 rounded-xl whitespace-nowrap">
+            <Plus className="h-4 w-4 mr-1.5" /> Add Guest
+          </Button>
         </div>
       </div>
 
-      <Card className="shadow-xs overflow-hidden">
+      <Card className="rounded-3xl border border-stone-200/90 overflow-hidden bg-white dark:bg-slate-900">
         <CardContent className="p-0">
           <QueryState query={query} data={query.data} isEmpty={(d) => d.items.length === 0} empty={<EmptyState title="No guests found" hint={q ? 'Try a different search.' : 'Guests appear here after their first booking, or add one manually.'} />}>
             {(data) => (

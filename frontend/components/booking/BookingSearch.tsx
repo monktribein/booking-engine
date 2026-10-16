@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Button } from '../ui/button';
 import { Calendar, Users, Search, Tag } from 'lucide-react';
 
 export interface SearchParams {
@@ -127,9 +126,13 @@ export function BookingSearch({
 
         {/* Submit */}
         <div>
-          <Button type="submit" disabled={!checkIn || !checkOut || checkOut <= checkIn} className="w-full h-9.5 font-bold shadow-md bg-indigo-600 hover:bg-indigo-700">
+          <button
+            type="submit"
+            disabled={!checkIn || !checkOut || checkOut <= checkIn}
+            className="w-full h-10 inline-flex items-center justify-center rounded-xl font-semibold text-xs text-slate-900 bg-[#c1d8f0] hover:bg-[#acc8e6] border border-[#a8c6e5] transition-all hover:-translate-y-0.5 cursor-pointer shadow-2xs disabled:opacity-50"
+          >
             <Search className="h-4 w-4 mr-1.5" /> Check Availability
-          </Button>
+          </button>
         </div>
       </div>
     </form>

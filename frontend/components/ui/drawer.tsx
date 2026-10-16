@@ -47,7 +47,7 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
       <div
-        className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -55,19 +55,19 @@ export function Drawer({
       <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
         <div
           className={cn(
-            'w-screen bg-white shadow-2xl transition-transform dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col',
+            'w-screen bg-white shadow-2xl transition-transform border-l border-stone-200 flex flex-col',
             widths[width]
           )}
         >
           {/* Header */}
-          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="px-6 py-5 border-b border-stone-200 flex items-center justify-between">
             <div>
-              {title && <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>}
-              {description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{description}</p>}
+              {title && <h2 className="text-lg font-bold text-slate-900">{title}</h2>}
+              {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
             </div>
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              className="rounded-xl p-1.5 text-slate-400 hover:bg-stone-100 hover:text-slate-700 transition-colors cursor-pointer"
             >
               <X className="h-5 w-5" />
             </button>

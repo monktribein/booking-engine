@@ -24,24 +24,24 @@ export function Alert({
 }: AlertProps) {
   const configs = {
     info: {
-      bg: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900',
-      text: 'text-blue-800 dark:text-blue-300',
-      icon: <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0" />,
+      bg: 'bg-[#c1d8f0]/20 border-[#a8c6e5]/60',
+      text: 'text-slate-800',
+      icon: <Info className="h-5 w-5 text-slate-700 shrink-0" />,
     },
     warning: {
-      bg: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900',
-      text: 'text-amber-800 dark:text-amber-300',
-      icon: <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />,
+      bg: 'bg-amber-50 border-amber-200',
+      text: 'text-amber-800',
+      icon: <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />,
     },
     danger: {
-      bg: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900',
-      text: 'text-rose-800 dark:text-rose-300',
-      icon: <AlertCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0" />,
+      bg: 'bg-rose-50 border-rose-200',
+      text: 'text-rose-800',
+      icon: <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />,
     },
     success: {
-      bg: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900',
-      text: 'text-emerald-800 dark:text-emerald-300',
-      icon: <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />,
+      bg: 'bg-emerald-50 border-emerald-200',
+      text: 'text-emerald-800',
+      icon: <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />,
     },
   };
 
@@ -77,7 +77,7 @@ export function Alert({
           type="button"
           aria-label="Dismiss"
           onClick={onClose}
-          className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/5 opacity-70 hover:opacity-100"
+          className="rounded-lg p-1 hover:bg-stone-200/60 opacity-70 hover:opacity-100 cursor-pointer"
         >
           <X className="h-4 w-4" />
         </button>
