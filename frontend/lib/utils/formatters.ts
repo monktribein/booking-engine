@@ -78,7 +78,7 @@ export function getChannelBadge(channel: ReservationSource | ChannelCode | strin
     case ReservationSource.API:
       return { bg: 'bg-teal-50 dark:bg-teal-950/30', text: 'text-teal-700 dark:text-teal-400', label: 'API', iconColor: '#14B8A6' };
     case ReservationSource.WALK_IN:
-      return { bg: 'bg-amber-50 dark:bg-amber-950/30', text: 'text-amber-700 dark:text-amber-400', label: 'Walk-in', iconColor: '#F59E0B' };
+      return { bg: 'bg-sky-50 dark:bg-sky-950/30', text: 'text-sky-700 dark:text-sky-400', label: 'Walk-in', iconColor: '#0284c7' };
     default:
       return { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300', label: String(channel), iconColor: '#64748B' };
   }

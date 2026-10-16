@@ -60,6 +60,24 @@ export const tokenStorage = {
   setAccess: (token: string) => {
     accessToken = token;
   },
+  getUser: <T = unknown>(): T | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const u = localStorage.getItem('tirvona_user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  },
+  setUser: (user: unknown) => {
+    if (typeof window !== 'undefined') {
+      if (user) {
+        localStorage.setItem('tirvona_user', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('tirvona_user');
+      }
+    }
+  },
   clear: () => {
     accessToken = null;
     if (typeof window !== 'undefined') {

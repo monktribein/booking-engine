@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { inventoryApi } from '@/lib/api/inventory';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -91,15 +92,25 @@ export default function InventoryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" aria-label="Previous week" onClick={() => setBaseDate(subDays(baseDate, 7))}>
+          <button
+            type="button"
+            aria-label="Previous week"
+            onClick={() => setBaseDate(subDays(baseDate, 7))}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-slate-700 cursor-pointer transition-colors"
+          >
             <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300" aria-live="polite">
+          </button>
+          <span className="text-xs font-bold text-slate-800 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/60" aria-live="polite">
             {formatDateShort(days[0])} - {formatDateShort(days[6])}
           </span>
-          <Button variant="outline" size="icon" aria-label="Next week" onClick={() => setBaseDate(addDays(baseDate, 7))}>
+          <button
+            type="button"
+            aria-label="Next week"
+            onClick={() => setBaseDate(addDays(baseDate, 7))}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-slate-700 cursor-pointer transition-colors"
+          >
             <ChevronRight className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -112,113 +123,158 @@ export default function InventoryPage() {
       >
         {(cal) => (
           <div className="space-y-6">
-            {cal.roomTypes.map((rt) => (
-              <Card key={rt.roomTypeId} className="shadow-xs overflow-hidden">
-                <CardHeader className="bg-slate-50/70 dark:bg-slate-800/40 pb-3 flex flex-row items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-bold flex items-center gap-2">
-                      <Boxes className="h-4 w-4 text-indigo-600" />
-                      {rt.roomTypeName}
-                    </CardTitle>
-                    <CardDescription>Capacity: {rt.days[0]?.total ?? 0} rooms</CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20">
-                          <th scope="col" className="p-3 text-left w-36 font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                            Metric / Action
-                          </th>
-                          {days.map((d) => (
-                            <th key={formatISODate(d)} scope="col" className="p-3 text-center min-w-[110px] border-r border-slate-200 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
-                              <div>{formatDateShort(d)}</div>
-                              <div className="text-[10px] font-normal text-slate-400">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+            {cal.roomTypes.map((rt, index) => (
+              <motion.div
+                key={rt.roomTypeId}
+                initial={{ opacity: 0, y: 36 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.15 }}
+                transition={{
+                  duration: 0.5,
+                  delay: index * 0.12,
+                  ease: 'easeOut',
+                }}
+              >
+                <Card className="rounded-3xl border border-stone-200/90 overflow-hidden bg-white dark:bg-slate-900 transition-all hover:border-[#a8c6e5]">
+                  <CardHeader className="bg-stone-50/60 dark:bg-slate-800/40 p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-2xl bg-[#c1d8f0]/50 border border-[#a8c6e5]/60 flex items-center justify-center text-slate-900 shrink-0">
+                        <Boxes className="h-5 w-5 text-slate-800" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">
+                            {rt.roomTypeName}
+                          </CardTitle>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[10px] font-semibold border border-emerald-200/60">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live
+                          </span>
+                        </div>
+                        <CardDescription className="text-xs text-slate-500 mt-0.5">
+                          Total Allotment Capacity: <strong className="text-slate-800 dark:text-slate-200">{rt.days[0]?.total ?? 0} physical rooms</strong>
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-500 bg-white dark:bg-slate-800 border border-stone-200/70 dark:border-slate-700 rounded-xl px-3 py-1">
+                        7-Day Realtime Matrix
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-stone-200/80 dark:border-slate-800 bg-stone-50/50 dark:bg-slate-800/20">
+                            <th scope="col" className="p-3.5 text-left w-36 sm:w-44 font-bold text-slate-500 uppercase tracking-wider text-[11px] border-r border-stone-200/70 dark:border-slate-800">
+                              Metric / Action
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        <tr className="bg-emerald-50/20 dark:bg-emerald-950/10">
-                          <th scope="row" className="p-3 text-left font-bold text-emerald-800 dark:text-emerald-400 border-r border-slate-200 dark:border-slate-800">
-                            Sellable Available
-                          </th>
-                          {days.map((d) => {
-                            const cell = rt.days.find((x) => x.date === formatISODate(d));
-                            return (
-                              <td key={formatISODate(d)} className="p-3 text-center border-r border-slate-200 dark:border-slate-800">
-                                {!cell ? (
-                                  <span className="text-slate-300">—</span>
-                                ) : (
-                                  <>
-                                    {cell.stopSell ? (
-                                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded">
-                                        <Ban className="h-3 w-3" /> Stop Sell
-                                      </span>
-                                    ) : (
-                                      <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400">{cell.available}</span>
-                                    )}
-                                    <div className="text-[10px] text-slate-400 mt-0.5">
-                                      {cell.sold} sold • {cell.blocked} blk
-                                    </div>
-                                  </>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                        <tr>
-                          <th scope="row" className="p-3 text-left font-semibold text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">
-                            Restrictions
-                          </th>
-                          {days.map((d) => {
-                            const cell = rt.days.find((x) => x.date === formatISODate(d));
-                            return (
-                              <td key={formatISODate(d)} className="p-2.5 text-center border-r border-slate-200 dark:border-slate-800 text-[11px]">
-                                {cell && (
-                                  <div className="space-y-1">
-                                    <span className="inline-block text-[10px] font-medium bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">Min: {cell.minimumStay}n</span>
-                                    {cell.closedToArrival && <span className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded px-1">CTA</span>}
-                                    {cell.closedToDeparture && <span className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 rounded px-1">CTD</span>}
-                                  </div>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                        <tr className="bg-slate-50/30">
-                          <th scope="row" className="p-3 text-left font-semibold text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                            Manage
-                          </th>
-                          {days.map((d) => {
-                            const dateStr = formatISODate(d);
-                            const cell = rt.days.find((x) => x.date === dateStr);
-                            return (
-                              <td key={dateStr} className="p-2 text-center border-r border-slate-200 dark:border-slate-800 align-middle">
-                                <div className="flex flex-col gap-1 items-center justify-center">
-                                  {cell?.stopSell ? (
-                                    <Button variant="success" size="sm" onClick={() => openAction('UNBLOCK', dateStr, rt.roomTypeId)} className="h-6 text-[10px] px-2" aria-label={`Re-open ${rt.roomTypeName} on ${dateStr}`}>
-                                      <Unlock className="h-3 w-3 mr-1" /> Re-open
-                                    </Button>
+                            {days.map((d) => (
+                              <th key={formatISODate(d)} scope="col" className="p-3 text-center min-w-[110px] border-r border-stone-200/70 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                                <div>{formatDateShort(d)}</div>
+                                <div className="text-[10px] font-normal text-slate-400">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 dark:divide-slate-800">
+                          <tr className="bg-emerald-50/20 dark:bg-emerald-950/10">
+                            <th scope="row" className="p-3.5 text-left font-bold text-emerald-900 dark:text-emerald-400 border-r border-stone-200/70 dark:border-slate-800 text-xs">
+                              Sellable Available
+                            </th>
+                            {days.map((d) => {
+                              const cell = rt.days.find((x) => x.date === formatISODate(d));
+                              return (
+                                <td key={formatISODate(d)} className="p-3 text-center border-r border-stone-200/70 dark:border-slate-800">
+                                  {!cell ? (
+                                    <span className="text-slate-300">—</span>
                                   ) : (
-                                    <Button variant="outline" size="sm" onClick={() => openAction('STOP_SELL', dateStr, rt.roomTypeId)} className="h-6 text-[10px] px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50" aria-label={`Stop sell ${rt.roomTypeName} on ${dateStr}`}>
-                                      <Ban className="h-3 w-3 mr-1" /> Stop Sell
-                                    </Button>
+                                    <>
+                                      {cell.stopSell ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/70 px-2 py-0.5 rounded-lg">
+                                          <Ban className="h-3 w-3" /> Stop Sell
+                                        </span>
+                                      ) : (
+                                        <span className="text-base font-black text-emerald-700 dark:text-emerald-400">{cell.available}</span>
+                                      )}
+                                      <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                        {cell.sold} sold • {cell.blocked} blk
+                                      </div>
+                                    </>
                                   )}
-                                  <Button variant="ghost" size="sm" onClick={() => openAction('RESTRICTIONS', dateStr, rt.roomTypeId)} className="h-6 text-[10px] px-1.5 text-slate-500" aria-label={`Edit rules for ${rt.roomTypeName} on ${dateStr}`}>
-                                    <Sliders className="h-3 w-3 mr-1" /> Rules
-                                  </Button>
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          <tr>
+                            <th scope="row" className="p-3.5 text-left font-semibold text-slate-600 dark:text-slate-400 border-r border-stone-200/70 dark:border-slate-800 text-xs">
+                              Restrictions
+                            </th>
+                            {days.map((d) => {
+                              const cell = rt.days.find((x) => x.date === formatISODate(d));
+                              return (
+                                <td key={formatISODate(d)} className="p-2.5 text-center border-r border-stone-200/70 dark:border-slate-800 text-[11px]">
+                                  {cell && (
+                                    <div className="space-y-1">
+                                      <span className="inline-block text-[10px] font-semibold bg-stone-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-stone-200/60 dark:border-slate-700 px-2 py-0.5 rounded-md">
+                                        Min: {cell.minimumStay}n
+                                      </span>
+                                      {cell.closedToArrival && <span className="block text-[10px] font-bold text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/60 rounded-md px-1.5 py-0.5">CTA</span>}
+                                      {cell.closedToDeparture && <span className="block text-[10px] font-bold text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/60 rounded-md px-1.5 py-0.5">CTD</span>}
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          <tr className="bg-stone-50/40 dark:bg-slate-800/10">
+                            <th scope="row" className="p-3.5 text-left font-semibold text-slate-500 border-r border-stone-200/70 dark:border-slate-800 text-xs">
+                              Manage
+                            </th>
+                            {days.map((d) => {
+                              const dateStr = formatISODate(d);
+                              const cell = rt.days.find((x) => x.date === dateStr);
+                              return (
+                                <td key={dateStr} className="p-2.5 text-center border-r border-stone-200/70 dark:border-slate-800 align-middle">
+                                  <div className="flex flex-col gap-1.5 items-center justify-center">
+                                    {cell?.stopSell ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => openAction('UNBLOCK', dateStr, rt.roomTypeId)}
+                                        className="inline-flex items-center gap-1 h-6 text-[10px] font-semibold px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer transition-colors"
+                                        aria-label={`Re-open ${rt.roomTypeName} on ${dateStr}`}
+                                      >
+                                        <Unlock className="h-3 w-3 mr-0.5" /> Re-open
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => openAction('STOP_SELL', dateStr, rt.roomTypeId)}
+                                        className="inline-flex items-center gap-1 h-6 text-[10px] font-semibold px-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer transition-colors"
+                                        aria-label={`Stop sell ${rt.roomTypeName} on ${dateStr}`}
+                                      >
+                                        <Ban className="h-3 w-3 mr-0.5" /> Stop Sell
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => openAction('RESTRICTIONS', dateStr, rt.roomTypeId)}
+                                      className="inline-flex items-center gap-1 h-6 text-[10px] font-semibold px-2 rounded-lg bg-stone-100 hover:bg-stone-200/80 text-slate-700 border border-stone-200/80 cursor-pointer transition-colors"
+                                      aria-label={`Edit rules for ${rt.roomTypeName} on ${dateStr}`}
+                                    >
+                                      <Sliders className="h-3 w-3 mr-0.5" /> Rules
+                                    </button>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ))}
           </div>
         )}

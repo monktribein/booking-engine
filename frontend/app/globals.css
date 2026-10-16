@@ -1,8 +1,40 @@
 @import "tailwindcss";
 
+@variant dark (&:where([data-theme="never-dark-mode"]));
+
 :root {
-  --background: #f8fafc;
+  color-scheme: light !important;
+  --background: #faf9f5;
   --foreground: #0f172a;
+}
+
+html, body {
+  color-scheme: light !important;
+  background-color: #faf9f5 !important;
+}
+
+input, textarea, select, button {
+  color-scheme: light !important;
+}
+
+/* Completely eliminate all box shadows across the entire website */
+*:not(input:-webkit-autofill) {
+  box-shadow: none !important;
+  --tw-shadow: 0 0 #0000 !important;
+  --tw-shadow-colored: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+}
+
+/* Chrome/Safari/Edge autofill light mode override */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 40px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 @theme inline {

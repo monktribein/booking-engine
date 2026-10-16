@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { BookingSearch, SearchParams } from '@/components/booking/BookingSearch';
 import { BookingRoomCard } from '@/components/booking/BookingRoomCard';
 import { EmptyState, ErrorState } from '@/components/ui/query-state';
@@ -51,12 +52,20 @@ export function PublicBookingClient({
 
   return (
     <div className="space-y-8">
-      <BookingSearch onSearch={setSearchParams} initialValues={searchParams} />
+      {/* Search box reveals on scroll */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+      >
+        <BookingSearch onSearch={setSearchParams} initialValues={searchParams} />
+      </motion.div>
 
       {query.isLoading && (
         <div className="space-y-4" aria-busy="true" aria-live="polite">
           <p className="text-xs text-slate-500 font-semibold text-center">Checking live availability and rates…</p>
-          <Skeleton className="h-56 w-full rounded-2xl" />
+          <Skeleton className="h-44 w-full rounded-3xl" />
         </div>
       )}
 
@@ -68,12 +77,29 @@ export function PublicBookingClient({
             <EmptyState title="No rooms available" hint="Try different dates or fewer guests." />
           ) : (
             <>
-              <div className="text-xs text-slate-500">
+              <motion.div
+                initial={{ opacity: 0 }}
+                whileInView={{ opacity: 1 }}
+                viewport={{ once: true }}
+                className="text-xs text-slate-500 font-medium"
+              >
                 {query.data.filter((r) => r.bookable).length} of {query.data.length} room types bookable for {searchParams.checkIn} to {searchParams.checkOut}
-              </div>
-              <div className="space-y-6">
-                {query.data.map((room) => (
-                  <BookingRoomCard key={room.roomTypeId} room={room} currency={currency} onSelectRatePlan={handleSelectRatePlan} />
+              </motion.div>
+              <div className="space-y-5">
+                {query.data.map((room, idx) => (
+                  <motion.div
+                    key={room.roomTypeId}
+                    initial={{ opacity: 0, y: 35 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.15 }}
+                    transition={{
+                      duration: 0.45,
+                      delay: idx * 0.1,
+                      ease: 'easeOut',
+                    }}
+                  >
+                    <BookingRoomCard room={room} currency={currency} onSelectRatePlan={handleSelectRatePlan} />
+                  </motion.div>
                 ))}
               </div>
             </>

@@ -26,6 +26,7 @@ function persistSession(res: AuthSession): { user: User; tokens: AuthTokens } {
     throw new Error('The server returned an invalid sign-in response.');
   }
   tokenStorage.setAccess(res.accessToken);
+  tokenStorage.setUser(res.user);
   const { user, ...tokens } = res;
   return { user, tokens };
 }

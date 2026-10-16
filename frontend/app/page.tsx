@@ -1,173 +1,467 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
+import { motion, type Variants } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
-  Sparkles,
-  LayoutDashboard,
-  ArrowRight,
-  ExternalLink,
+  Calendar,
   Building2,
   CheckCircle2,
+  ArrowRight,
+  ExternalLink,
+  RefreshCw,
+  LogOut,
+  ChevronDown,
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth/auth-context';
 
 export default function RootHomePage() {
+  const { user, logout } = useAuth();
+  const containerVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.12,
+        delayChildren: 0.1,
+      },
+    },
+  };
+
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: 0.6, ease: 'easeOut' },
+    },
+  };
+
+  const sectionVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.18,
+        delayChildren: 0.05,
+      },
+    },
+  };
+
+  const cardLeftVariants: Variants = {
+    hidden: { opacity: 0, y: 60, x: -30, rotate: -2.5, scale: 0.93 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      x: 0,
+      rotate: 0,
+      scale: 1,
+      transition: {
+        type: 'spring',
+        damping: 18,
+        stiffness: 85,
+        mass: 0.8,
+      },
+    },
+  };
+
+  const cardCenterVariants: Variants = {
+    hidden: { opacity: 0, y: 75, scale: 0.9 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: {
+        type: 'spring',
+        damping: 16,
+        stiffness: 90,
+        mass: 0.8,
+      },
+    },
+  };
+
+  const cardRightVariants: Variants = {
+    hidden: { opacity: 0, y: 60, x: 30, rotate: 2.5, scale: 0.93 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      x: 0,
+      rotate: 0,
+      scale: 1,
+      transition: {
+        type: 'spring',
+        damping: 18,
+        stiffness: 85,
+        mass: 0.8,
+      },
+    },
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-600 selection:text-white">
-      {/* Background glow effects */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl" />
-        <div className="absolute top-1/3 -right-40 w-96 h-96 bg-violet-600/15 rounded-full blur-3xl" />
-      </div>
-
-      {/* Top Navbar */}
-      <header className="relative z-20 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/20">
-              <Sparkles className="h-5 w-5" />
+    <div className="min-h-screen bg-[#FAF9F5] text-slate-900 font-sans selection:bg-[#c1d8f0] selection:text-slate-900 antialiased">
+      {/* Top Navigation - Aligned with max-w-6xl container */}
+      <motion.header
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="sticky top-0 z-50 border-b border-stone-200/80 bg-[#FAF9F5]/90 backdrop-blur-md"
+      >
+        <div className="mx-auto max-w-7xl px-6 sm:px-10 h-18 grid grid-cols-[auto_1fr_auto] items-center gap-6">
+          {/* Left: Brand Logo */}
+          <Link href="/" className="flex items-center gap-2.5 group shrink-0">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5] shadow-2xs transition-transform group-hover:scale-105">
+              <span className="font-bold text-base">T</span>
             </div>
-            <span className="text-lg font-bold tracking-tight">Tirvona</span>
-          </div>
+            <span className="text-xl font-bold tracking-tight text-slate-900">
+              Tirvona
+            </span>
+          </Link>
 
-          <div className="flex items-center gap-3">
-            <Link href="/stays">
-              <Button variant="ghost" size="sm" className="text-slate-300 hover:text-white">
-                Find a stay <ExternalLink className="h-3.5 w-3.5 ml-1" />
-              </Button>
+          {/* Center: Navigation Links in middle - cleanly spaced */}
+          <nav className="hidden md:flex items-center justify-center gap-6 lg:gap-8 text-sm font-medium text-slate-600">
+            <a href="#tape-chart" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+              Tape Chart
+            </a>
+            <a href="#channel-sync" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+              Channel Sync
+            </a>
+            <a href="#direct-engine" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+              Direct Booking
+            </a>
+            <Link href="/stays" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+              Guest Directory
             </Link>
-            <Link href="/login">
-              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500 font-semibold shadow-md">
-                Sign In
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+          </nav>
 
-      {/* Hero Section */}
-      <main className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 py-16 sm:py-24 space-y-16">
-        <div className="text-center space-y-5 max-w-3xl mx-auto">
-          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-semibold text-indigo-300 backdrop-blur-xs">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            Production Hospitality Monolith • NestJS API Ready
-          </div>
+          {/* Right: User Avatar Logo & Dashboard access (if logged in) or Sign In Button */}
+          <div className="flex items-center justify-end shrink-0 gap-2.5">
+            {user ? (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/dashboard"
+                  title="Open PMS Dashboard"
+                  className="flex items-center gap-2.5 rounded-full bg-[#c1d8f0]/40 hover:bg-[#c1d8f0]/70 border border-[#a8c6e5] p-1.5 pr-4 transition-all group cursor-pointer shadow-2xs hover:scale-[1.02]"
+                >
+                  {/* User Profile Logo / Avatar with Initials & active green indicator */}
+                  <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#c1d8f0] text-slate-900 font-bold text-xs border border-[#a8c6e5] shadow-2xs group-hover:scale-105 transition-transform">
+                    <span>{user.name ? user.name[0].toUpperCase() : 'U'}</span>
+                    <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-[#FAF9F5]" title="Online" />
+                  </div>
 
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tight leading-tight sm:leading-none bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-            PMS, Booking Engine & Channel Manager
-          </h1>
+                  <div className="flex flex-col text-left">
+                    <span className="text-xs font-bold text-slate-900 leading-tight">
+                      {user.name || 'Owner'}
+                    </span>
+                    <span className="text-[10px] text-slate-600 font-medium leading-tight flex items-center gap-1 group-hover:text-slate-950">
+                      <span>Dashboard</span>
+                      <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                    </span>
+                  </div>
+                </Link>
 
-          <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Tirvona keeps one inventory for your rooms, rates and guest holds, sells it through your direct booking engine and a public API, and is built to sync with OTA channels as partner connections are approved.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <Link href="/dashboard">
-              <Button size="lg" className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 font-bold px-8 shadow-xl shadow-indigo-600/30">
-                Launch Owner Dashboard <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </Link>
-            <Link href="/stays">
-              <Button variant="outline" size="lg" className="w-full sm:w-auto border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-800">
-                Find a stay <ExternalLink className="h-4 w-4 ml-2" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-
-        {/* Dual Experiences Display */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-          {/* Experience 1: PMS Dashboard */}
-          <div className="relative rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/90 to-slate-950 p-8 space-y-6 shadow-2xl hover:border-indigo-500/50 transition-all group">
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                <LayoutDashboard className="h-6 w-6" />
+                <button
+                  type="button"
+                  onClick={() => logout()}
+                  title="Sign Out"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white hover:bg-stone-100 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span className="sr-only">Sign Out</span>
+                </button>
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-950/60 border border-indigo-800 px-3 py-1 rounded-full">
-                Experience 1
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                Owner & Admin PMS Dashboard
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                Full-featured hotel management suite: tape-chart PMS calendar, room housekeeping, date-based inventory restrictions, rate plans, guest CRM, and payments.
-              </p>
-            </div>
-
-            <div className="space-y-2.5 pt-2 text-xs text-slate-300">
-              {[
-                'Interactive tape-chart calendar (Day / Week / Month)',
-                'Atomic inventory counters with zero double-selling',
-                'Channel manager with mappings and sync jobs (OTA connections need approved partner access)',
-                'Staff role-based access control (RBAC)',
-              ].map((feat, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>{feat}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-4">
-              <Link href="/dashboard" className="block">
-                <Button className="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold">
-                  Open PMS Dashboard →
-                </Button>
+            ) : (
+              <Link href="/login">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] px-5 py-2 text-sm transition-transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
+                >
+                  Sign In
+                </button>
               </Link>
-            </div>
-          </div>
-
-          {/* Experience 2: Public Booking Engine */}
-          <div className="relative rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/90 to-slate-950 p-8 space-y-6 shadow-2xl hover:border-emerald-500/50 transition-all group">
-            <div className="flex items-center justify-between">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <Building2 className="h-6 w-6" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-3 py-1 rounded-full">
-                Experience 2
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                Guest Public Booking Engine
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                SEO-optimized, server-rendered direct booking site for guests with Open Graph and Schema.org rich snippets. Instant room holds, pricing calculator, and vouchers.
-              </p>
-            </div>
-
-            <div className="space-y-2.5 pt-2 text-xs text-slate-300">
-              {[
-                'Server-rendered metadata, Open Graph & schema.org',
-                'Real-time date availability & promo code discount engine',
-                'Streamlined 5-step checkout & payment screen',
-                'Instant booking vouchers and guest self-service lookup',
-              ].map((feat, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span>{feat}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-4">
-              <Link href="/stays" className="block">
-                <Button className="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold">
-                  View Live Guest Engine ↗
-                </Button>
-              </Link>
-            </div>
+            )}
           </div>
         </div>
+      </motion.header>
+
+      {/* Main Container */}
+      <main className="mx-auto max-w-7xl px-6 sm:px-10">
+        {/* Full-Screen Hero Fold - Ensures below-the-fold content is not visible until scroll */}
+        <section className="min-h-[calc(100vh-4.5rem)] flex flex-col justify-between items-center py-8 sm:py-12">
+          {/* Top spacer for optical vertical centering */}
+          <div className="w-full h-2 sm:h-6" aria-hidden="true" />
+
+          {/* Centered Hero Content */}
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="text-center space-y-6 max-w-5xl mx-auto my-auto"
+          >
+            {/* Main Headline in Inter with ample width */}
+            <motion.h1
+              variants={itemVariants}
+              className="text-4xl sm:text-5xl md:text-[54px] lg:text-[60px] font-bold tracking-tight text-slate-900 leading-[1.18]"
+            >
+              <span className="block whitespace-normal sm:whitespace-nowrap">Intelligent Hotel Management</span>
+              <span className="block font-normal text-slate-700 mt-1 sm:mt-2">& Direct Bookings</span>
+            </motion.h1>
+
+            {/* Subtitle in Inter */}
+            <motion.p
+              variants={itemVariants}
+              className="text-base sm:text-lg text-slate-600 max-w-2xl mx-auto font-normal leading-relaxed"
+            >
+              Unified inventory and channel sync without double bookings. Run your tape chart, OTA distribution, and guest checkout from one cohesive operating system.
+            </motion.p>
+
+            {/* Hero Action Buttons - Compact size with transparent secondary button */}
+            <motion.div
+              variants={itemVariants}
+              className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2"
+            >
+              <Link href={user ? "/dashboard" : "/login"}>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] px-5 py-2.5 text-sm shadow-2xs transition-transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
+                >
+                  {user ? 'Open PMS Dashboard' : 'Launch PMS Dashboard'} <ArrowRight className="h-4 w-4 ml-1.5" />
+                </button>
+              </Link>
+              <Link href="/stays">
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full bg-transparent hover:bg-slate-100 text-slate-800 font-medium border border-slate-300 px-5 py-2.5 text-sm transition-transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
+                >
+                  Explore Guest Direct Engine <ExternalLink className="h-3.5 w-3.5 ml-1.5 opacity-60" />
+                </button>
+              </Link>
+            </motion.div>
+          </motion.div>
+
+          {/* Interactive Scroll-to-explore indicator at bottom of Hero fold */}
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.8, duration: 0.6 }}
+            className="flex flex-col items-center gap-1.5 pt-6 pb-2 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer select-none"
+            onClick={() => {
+              document.getElementById('pillars-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+              Scroll to explore
+            </span>
+            <motion.div
+              animate={{ y: [0, 5, 0] }}
+              transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
+            >
+              <ChevronDown className="h-4 w-4 text-slate-500" />
+            </motion.div>
+          </motion.div>
+        </section>
+
+        {/* 3 Core Pillars Bento Grid - Only loads & reveals when scrolled into view */}
+        <section id="pillars-section" className="pt-20 pb-28 w-full scroll-mt-16">
+          <motion.div
+            initial={{ opacity: 0, y: 35 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.35, margin: "-60px" }}
+            transition={{ duration: 0.65, ease: 'easeOut' }}
+            className="text-center max-w-xl mx-auto mb-14 space-y-2"
+          >
+            <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+              Three Pillars, One Unified Inventory
+            </h3>
+            <p className="text-sm text-slate-600">
+              Everything property managers need to run operations and direct revenue.
+            </p>
+          </motion.div>
+
+          <motion.div
+            variants={sectionVariants}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2, margin: "-70px" }}
+            className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full"
+          >
+            {/* Pillar 1: PMS Tape Chart */}
+            <motion.div
+              id="tape-chart"
+              variants={cardLeftVariants}
+              whileHover={{ y: -8, scale: 1.015, transition: { duration: 0.25, ease: 'easeOut' } }}
+              className="rounded-3xl border border-stone-200/90 bg-white p-7 space-y-5 shadow-xs hover:border-[#a8c6e5] transition-colors group flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <motion.div
+                  whileHover={{ rotate: 10, scale: 1.12 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-900 border border-slate-200/80 shadow-2xs"
+                >
+                  <Calendar className="h-6 w-6" />
+                </motion.div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors">
+                    PMS Tape Chart
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+                    Interactive multi-property calendar tape chart with room statuses, housekeeping states, stay notes, and atomic inventory lock with zero double-selling.
+                  </p>
+                </div>
+                <div className="space-y-2.5 pt-1 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Interactive day, week, and month tape chart</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Atomic inventory lock with zero double-selling</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Housekeeping turnover and room inspection tracking</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-stone-100">
+                <Link href={user ? '/dashboard' : '/login'} className="block">
+                  <Button className="w-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] rounded-xl text-xs py-2.5 shadow-xs cursor-pointer transition-transform hover:-translate-y-0.5">
+                    {user ? 'Open Tape Chart Dashboard →' : 'Launch Tape Chart Dashboard →'}
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+
+            {/* Pillar 2: Channel Manager OTA Sync */}
+            <motion.div
+              id="channel-sync"
+              variants={cardCenterVariants}
+              whileHover={{ y: -8, scale: 1.015, transition: { duration: 0.25, ease: 'easeOut' } }}
+              className="rounded-3xl border border-stone-200/90 bg-white p-7 space-y-5 shadow-xs hover:border-[#a8c6e5] transition-colors group flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <motion.div
+                  whileHover={{ rotate: 180, scale: 1.12 }}
+                  transition={{ type: 'spring', stiffness: 220, damping: 15 }}
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-900 border border-amber-200/80 shadow-2xs"
+                >
+                  <RefreshCw className="h-6 w-6" />
+                </motion.div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors">
+                    Channel Manager OTA Sync
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+                    Two-way synchronization across Booking.com, Airbnb, and Expedia. Push real-time rates, room closures, and stay restrictions seamlessly.
+                  </p>
+                </div>
+                <div className="space-y-2.5 pt-1 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>2-way partner sync with instant conflict prevention</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Automated room rate plan and restriction pushes</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Real-time OTA channel mapping engine</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-stone-100">
+                <Link href={user ? '/dashboard/channels' : '/login'} className="block">
+                  <Button className="w-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] rounded-xl text-xs py-2.5 shadow-xs cursor-pointer transition-transform hover:-translate-y-0.5">
+                    {user ? 'Manage OTA Connections →' : 'Launch Channel Manager →'}
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+
+            {/* Pillar 3: Direct Guest Booking Engine */}
+            <motion.div
+              id="direct-engine"
+              variants={cardRightVariants}
+              whileHover={{ y: -8, scale: 1.015, transition: { duration: 0.25, ease: 'easeOut' } }}
+              className="rounded-3xl border border-stone-200/90 bg-white p-7 space-y-5 shadow-xs hover:border-[#a8c6e5] transition-colors group flex flex-col justify-between"
+            >
+              <div className="space-y-4">
+                <motion.div
+                  whileHover={{ rotate: -10, scale: 1.12 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-900 border border-emerald-200/80 shadow-2xs"
+                >
+                  <Building2 className="h-6 w-6" />
+                </motion.div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 group-hover:text-slate-950 transition-colors">
+                    Direct Booking Engine
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 mt-2 leading-relaxed">
+                    Commission-free direct booking engine for guests. Fast server-rendered pages, Open Graph, Schema.org rich snippets, and instant voucher generation.
+                  </p>
+                </div>
+                <div className="space-y-2.5 pt-1 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Server-rendered SEO with Schema.org hotel structured data</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Real-time availability, promo codes & dynamic discounts</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Instant booking vouchers & guest self-service portal</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-stone-100">
+                <Link href="/stays" className="block">
+                  <Button className="w-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] rounded-xl text-xs py-2.5 shadow-xs cursor-pointer transition-transform hover:-translate-y-0.5">
+                    Launch Direct Booking Engine ↗
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+          </motion.div>
+        </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 py-8 text-center text-xs text-slate-600">
-        Tirvona Hospitality Suite • Production Frontend Architecture
-      </footer>
+      {/* Elegant Minimal Footer - Smooth scroll reveal */}
+      <motion.footer
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.55 }}
+        className="border-t border-stone-200/80 bg-white py-10 text-slate-500 text-xs"
+      >
+        <div className="mx-auto max-w-7xl px-6 sm:px-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-900 text-base">Tirvona</span>
+            <span className="text-stone-300">•</span>
+            <span>The Modern Hospitality Operating System</span>
+          </div>
+
+          <div className="flex items-center gap-6 text-slate-600 font-medium">
+            <Link href="/dashboard" className="hover:text-slate-900 transition">PMS Tape Chart</Link>
+            <Link href="/stays" className="hover:text-slate-900 transition">Direct Booking Engine</Link>
+            {user ? (
+              <Link href="/dashboard" className="hover:text-slate-900 transition">Dashboard</Link>
+            ) : (
+              <Link href="/login" className="hover:text-slate-900 transition">Sign In</Link>
+            )}
+          </div>
+
+          <div className="text-slate-400">
+            © {new Date().getFullYear()} Tirvona Inc. All rights reserved.
+          </div>
+        </div>
+      </motion.footer>
     </div>
   );
 }

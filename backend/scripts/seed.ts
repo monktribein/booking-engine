@@ -137,7 +137,11 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
       taxPercent: 5, // demo value only; real rates come from the property's tax configuration
       bookingHorizonDays: 30, // demo: 30 days of inventory
       amenities: ['wifi', 'parking', 'vegetarian-kitchen', 'temple-shuttle', 'power-backup'],
-      images: j([{ url: 'https://images.tirvona.example/radha-ashram/facade.jpg', caption: 'Entrance', sortOrder: 0 }]),
+      images: j([
+        { url: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80', caption: 'Entrance & Courtyard', sortOrder: 0 },
+        { url: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80', caption: 'Veranda & Gardens', sortOrder: 1 },
+        { url: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=800&q=80', caption: 'Meditation Pavilion', sortOrder: 2 },
+      ]),
       status: PropertyStatus.ACTIVE,
       // The demo is published on its own page and approved on the marketplace (owner consent recorded).
       directBookingEnabled: true,

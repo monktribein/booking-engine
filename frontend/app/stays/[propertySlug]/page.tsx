@@ -6,8 +6,10 @@ import { addDays, format } from 'date-fns';
 import { ApiError } from '@/lib/api/client';
 import { bookingEngineApi } from '@/lib/api/booking-engine';
 import { PublicBookingClient } from './booking-client';
+import { PropertyHeroGallery } from '@/components/booking/PropertyHeroGallery';
+import { PropertyInfoCards } from '@/components/booking/PropertyInfoCards';
 import { formatCurrency } from '@/lib/utils/currency';
-import { MapPin, ShieldCheck, Sparkles, Check } from 'lucide-react';
+import { MapPin, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface Props {
   params: Promise<{ propertySlug: string }>;
@@ -109,11 +111,11 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
       />
 
       {/* Guest Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-stone-200/90 dark:border-slate-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-md">
-              <Sparkles className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5]">
+              <Sparkles className="h-5 w-5 text-slate-800" />
             </div>
             <div>
               <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
@@ -126,11 +128,11 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
           </div>
 
           <div className="flex items-center gap-3">
-            <Link href="/stays" className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600">
+            <Link href="/stays" className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900">
               All stays
             </Link>
             <Link href="/booking/lookup"
-              className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600"
+              className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900"
             >
               Find Existing Booking
             </Link>
@@ -152,7 +154,7 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
                 {property.name}
               </h1>
               <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-                <MapPin className="h-4 w-4 text-indigo-600 shrink-0" />
+                <MapPin className="h-4 w-4 text-sky-600 shrink-0" />
                 <span>
                   {property.address}, {property.city}, {property.state}
                 </span>
@@ -162,84 +164,32 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
             {startingFrom !== null && (
               <div className="text-right">
                 <span className="text-xs text-slate-400 block font-medium">Starting from</span>
-                <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{formatCurrency(startingFrom, property.currency)}</span>
+                <span className="text-2xl font-black text-slate-900 dark:text-slate-100">{formatCurrency(startingFrom, property.currency)}</span>
                 <span className="text-xs text-slate-400"> / night</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Hero Photo Grid: only the property's own photos */}
-        {property.images.length > 0 && (
-          <div className={`grid grid-cols-1 ${property.images.length > 1 ? 'md:grid-cols-3' : ''} gap-3 h-[320px] sm:h-[420px] rounded-3xl overflow-hidden shadow-md`}>
-            {property.images.slice(0, 3).map((img, i) => (
-              <div key={i} className={`relative group overflow-hidden ${i === 0 && property.images.length > 1 ? 'md:col-span-2' : ''} h-full`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={img.url} alt={img.caption || property.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Hero Photo Gallery with verified fallbacks and error handling */}
+        <PropertyHeroGallery
+          propertyName={property.name}
+          images={property.images}
+          locationText={`${property.city}, ${property.state}`}
+        />
 
-        {/* Server-Rendered Property Description & Highlights */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="prose dark:prose-invert max-w-none text-sm sm:text-base text-slate-700 dark:text-slate-300 leading-relaxed">
-              <p>{property.description}</p>
-            </div>
-
-            {/* Amenities Grid */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-5 bg-white dark:bg-slate-900 space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-                Property Amenities
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {property.amenities.map((amenity, idx) => (
-                  <div key={idx} className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
-                    <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <span>{amenity}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Policies */}
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-5 bg-white dark:bg-slate-900 space-y-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-                Property Rules & Policies
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="font-bold text-slate-900 dark:text-slate-100 block">Check-in / Check-out</span>
-                  <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                    Check-in: {property.checkInTime} • Check-out: {property.checkOutTime}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-900 dark:text-slate-100 block">Cancellation Policy</span>
-                  <p className="text-slate-600 dark:text-slate-400 mt-0.5">
-                    Cancellation terms depend on the rate plan you choose and are shown before you book.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Property Contact Card */}
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-5 bg-white dark:bg-slate-900 space-y-4 shadow-sm">
-              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                Contact & Location
-              </h3>
-              <div className="space-y-2.5 text-xs">
-                <div className="flex items-start gap-2.5 text-slate-600 dark:text-slate-300">
-                  <MapPin className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
-                  <span>{property.address}, {property.city}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Animated Property Overview & 3-Column Information Cards */}
+        <PropertyInfoCards
+          propertyName={property.name}
+          description={property.description}
+          amenities={property.amenities}
+          checkInTime={property.checkInTime}
+          checkOutTime={property.checkOutTime}
+          address={property.address}
+          city={property.city}
+          state={property.state}
+          country={property.country}
+        />
 
         {/* Dynamic Availability & Room Booking Section (Interactive Client Component) */}
         <div id="availability-section" className="space-y-6 pt-6">

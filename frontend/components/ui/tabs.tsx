@@ -19,7 +19,7 @@ export interface TabsProps {
 
 export function Tabs({ items, activeId, onChange, className }: TabsProps) {
   return (
-    <div className={cn('flex items-center space-x-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar', className)}>
+    <div className={cn('flex items-center space-x-1 border-b border-stone-200 overflow-x-auto no-scrollbar', className)}>
       {items.map((tab) => {
         const isActive = tab.id === activeId;
         return (
@@ -29,8 +29,8 @@ export function Tabs({ items, activeId, onChange, className }: TabsProps) {
             className={cn(
               'inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap',
               isActive
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-200'
+                ? 'border-slate-900 text-slate-900 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-stone-300'
             )}
           >
             {tab.icon}
@@ -40,8 +40,8 @@ export function Tabs({ items, activeId, onChange, className }: TabsProps) {
                 className={cn(
                   'rounded-full px-2 py-0.5 text-xs',
                   isActive
-                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300'
-                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                    ? 'bg-[#c1d8f0] text-slate-900 font-semibold'
+                    : 'bg-stone-100 text-slate-600'
                 )}
               >
                 {tab.badge}

@@ -5,6 +5,7 @@
   "description": "Tirvona backend: PMS, booking engine and channel manager (NestJS modular monolith on PostgreSQL / Supabase + BullMQ).",
   "license": "UNLICENSED",
   "scripts": {
+    "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/src/main.js",
     "start:worker": "node dist/src/worker.js",
