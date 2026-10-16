@@ -17,10 +17,11 @@ import { getChannelBadge, getStatusBadgeVariant } from '@/lib/utils/formatters';
 import { reportsApi } from '@/lib/api/reports';
 import { reservationsApi } from '@/lib/api/reservations';
 import { channelsApi } from '@/lib/api/channels';
-import { Reservation } from '@/types';
+import { OccupancyReport, Reservation } from '@/types';
 import {
   BedDouble,
   DoorOpen,
+  CalendarCheck,
   TrendingUp,
   ArrowRight,
   Radio,
@@ -74,7 +75,7 @@ export default function DashboardHomePage() {
   const chartDaysList = useMemo(() => {
     const list = [];
     const count = trendRange;
-    const occMap = new Map<string, { date: string; occupancy: number; revenue: number }>();
+    const occMap = new Map<string, OccupancyReport>();
     if (occupancyTrend.data) {
       occupancyTrend.data.forEach((item) => {
         occMap.set(item.date.slice(0, 10), item);
