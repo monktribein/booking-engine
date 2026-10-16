@@ -11,7 +11,6 @@ import {
   CalendarCheck,
   Radio,
   BookCheck,
-  Check,
   Trash2,
   ExternalLink,
   Globe,

@@ -21,7 +21,6 @@ import { Reservation } from '@/types';
 import {
   BedDouble,
   DoorOpen,
-  CalendarCheck,
   TrendingUp,
   ArrowRight,
   Radio,
@@ -31,7 +30,6 @@ import {
   Eye,
   BarChart3,
   PieChart,
-  Calendar,
   Layers,
 } from 'lucide-react';
 
@@ -76,7 +74,7 @@ export default function DashboardHomePage() {
   const chartDaysList = useMemo(() => {
     const list = [];
     const count = trendRange;
-    const occMap = new Map<string, any>();
+    const occMap = new Map<string, { date: string; occupancy: number; revenue: number }>();
     if (occupancyTrend.data) {
       occupancyTrend.data.forEach((item) => {
         occMap.set(item.date.slice(0, 10), item);
@@ -138,7 +136,7 @@ export default function DashboardHomePage() {
 
       const totalRev = Object.values(counts).reduce((a, b) => a + b.revenue, 0) || 1;
       return Object.entries(counts).map(([channel, data]) => {
-        const badge = getChannelBadge(channel as any);
+        const badge = getChannelBadge(channel);
         return {
           name: badge.label,
           key: channel,
