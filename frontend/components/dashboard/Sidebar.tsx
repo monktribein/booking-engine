@@ -19,7 +19,6 @@ import {
   ExternalLink,
   Code2,
   LogOut,
-  Hotel,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useProperty } from '@/lib/auth/property-context';

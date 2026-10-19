@@ -19,7 +19,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" data-theme="light" style={{ colorScheme: 'light' }} className={`${inter.variable} h-full antialiased`}>
-      <body style={{ colorScheme: 'light' }} className="min-h-full flex flex-col font-sans bg-[#FAF9F5] text-slate-900">
+      <body suppressHydrationWarning style={{ colorScheme: 'light' }} className="min-h-full flex flex-col font-sans bg-[#FAF9F5] text-slate-900">
         <QueryProvider>
           <AuthProvider>
             <PropertyProvider>{children}</PropertyProvider>

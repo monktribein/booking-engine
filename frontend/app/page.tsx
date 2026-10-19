@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { motion, type Variants } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -18,13 +18,18 @@ import { useAuth } from '@/lib/auth/auth-context';
 
 import { BrandLogo } from '@/components/ui/brand-logo';
 
+/** Returns true only on the client, false during SSR — no setState-in-effect needed. */
+function useIsMounted() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
+
 export default function RootHomePage() {
   const { user, logout } = useAuth();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useIsMounted();
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
