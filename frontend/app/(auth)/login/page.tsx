@@ -9,6 +9,7 @@ import { isDemoMode } from '@/lib/config';
 import { credentialErrorMessage } from '@/lib/utils/errors';
 import { Input } from '@/components/ui/input';
 import { ArrowRight, ArrowLeft } from 'lucide-react';
+import { BrandLogo } from '@/components/ui/brand-logo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -62,15 +63,8 @@ export default function LoginPage() {
         className="w-full max-w-md space-y-6"
       >
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2.5 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5] shadow-2xs transition-transform group-hover:scale-105">
-              <span className="font-bold text-lg">T</span>
-            </div>
-            <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Tirvona
-            </span>
-          </Link>
+        <div className="flex flex-col items-center text-center space-y-2">
+          <BrandLogo size="lg" />
           <p className="text-xs text-slate-500 font-normal">
             Sign in to access your hotel PMS, calendar, and channel manager
           </p>

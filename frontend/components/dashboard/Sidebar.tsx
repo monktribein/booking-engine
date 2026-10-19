@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useProperty } from '@/lib/auth/property-context';
+import { BrandLogo } from '@/components/ui/brand-logo';
 
 export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
@@ -64,19 +65,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
       >
         {/* Brand Header */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-stone-100 px-5">
-          <Link href="/dashboard" className="flex items-center gap-2.5 group">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5] transition-transform group-hover:scale-105">
-              <Hotel className="h-5 w-5" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-base font-bold tracking-tight text-slate-900">
-                Tirvona
-              </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                Hospitality PMS
-              </span>
-            </div>
-          </Link>
+          <BrandLogo href="/dashboard" subtitle="Hospitality PMS" />
         </div>
 
         {/* Navigation Links */}
