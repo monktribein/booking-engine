@@ -9,7 +9,8 @@ import { PublicBookingClient } from './booking-client';
 import { PropertyHeroGallery } from '@/components/booking/PropertyHeroGallery';
 import { PropertyInfoCards } from '@/components/booking/PropertyInfoCards';
 import { formatCurrency } from '@/lib/utils/currency';
-import { MapPin, ShieldCheck, Sparkles } from 'lucide-react';
+import { MapPin, ShieldCheck } from 'lucide-react';
+import { BrandLogo } from '@/components/ui/brand-logo';
 
 interface Props {
   params: Promise<{ propertySlug: string }>;
@@ -113,19 +114,7 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
       {/* Guest Navigation Bar */}
       <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-stone-200/90 dark:border-slate-800">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5]">
-              <Sparkles className="h-5 w-5 text-slate-800" />
-            </div>
-            <div>
-              <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
-                Tirvona Direct
-              </span>
-              <span className="hidden sm:inline-block text-[10px] text-slate-400 ml-2 font-medium">
-                Official Hotel Booking Portal
-              </span>
-            </div>
-          </div>
+          <BrandLogo href="/" subtitle="Direct Booking" />
 
           <div className="flex items-center gap-3">
             <Link href="/stays" className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900">

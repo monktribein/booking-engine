@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { motion, type Variants } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -16,8 +16,20 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 
+import { BrandLogo } from '@/components/ui/brand-logo';
+
+/** Returns true only on the client, false during SSR — no setState-in-effect needed. */
+function useIsMounted() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
+
 export default function RootHomePage() {
   const { user, logout } = useAuth();
+  const mounted = useIsMounted();
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
@@ -109,34 +121,33 @@ export default function RootHomePage() {
       >
         <div className="mx-auto max-w-7xl px-6 sm:px-10 h-18 grid grid-cols-[auto_1fr_auto] items-center gap-6">
           {/* Left: Brand Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#c1d8f0] text-slate-900 border border-[#a8c6e5] shadow-2xs transition-transform group-hover:scale-105">
-              <span className="font-bold text-base">T</span>
-            </div>
-            <span className="text-xl font-bold tracking-tight text-slate-900">
-              Tirvona
-            </span>
-          </Link>
+          <BrandLogo />
 
           {/* Center: Navigation Links in middle - cleanly spaced */}
           <nav className="hidden md:flex items-center justify-center gap-6 lg:gap-8 text-sm font-medium text-slate-600">
-            <a href="#tape-chart" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+            <Link
+              href="/dashboard/calendar"
+              className="hover:text-slate-900 transition-colors whitespace-nowrap"
+            >
               Tape Chart
-            </a>
-            <a href="#channel-sync" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+            </Link>
+            <Link
+              href="/dashboard/channels"
+              className="hover:text-slate-900 transition-colors whitespace-nowrap"
+            >
               Channel Sync
-            </a>
-            <a href="#direct-engine" className="hover:text-slate-900 transition-colors whitespace-nowrap">
-              Direct Booking
-            </a>
-            <Link href="/stays" className="hover:text-slate-900 transition-colors whitespace-nowrap">
+            </Link>
+            <Link
+              href="/dashboard/guests"
+              className="hover:text-slate-900 transition-colors whitespace-nowrap"
+            >
               Guest Directory
             </Link>
           </nav>
 
           {/* Right: User Avatar Logo & Dashboard access (if logged in) or Sign In Button */}
           <div className="flex items-center justify-end shrink-0 gap-2.5">
-            {user ? (
+            {mounted && user ? (
               <div className="flex items-center gap-2">
                 <Link
                   href="/dashboard"
@@ -220,12 +231,12 @@ export default function RootHomePage() {
               variants={itemVariants}
               className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2"
             >
-              <Link href={user ? "/dashboard" : "/login"}>
+              <Link href="/dashboard">
                 <button
                   type="button"
                   className="inline-flex items-center justify-center rounded-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] px-5 py-2.5 text-sm shadow-2xs transition-transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
                 >
-                  {user ? 'Open PMS Dashboard' : 'Launch PMS Dashboard'} <ArrowRight className="h-4 w-4 ml-1.5" />
+                  Open PMS Dashboard <ArrowRight className="h-4 w-4 ml-1.5" />
                 </button>
               </Link>
               <Link href="/stays">
@@ -325,9 +336,9 @@ export default function RootHomePage() {
               </div>
 
               <div className="pt-4 border-t border-stone-100">
-                <Link href={user ? '/dashboard' : '/login'} className="block">
+                <Link href="/dashboard/calendar" className="block">
                   <Button className="w-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] rounded-xl text-xs py-2.5 shadow-xs cursor-pointer transition-transform hover:-translate-y-0.5">
-                    {user ? 'Open Tape Chart Dashboard →' : 'Launch Tape Chart Dashboard →'}
+                    Open Tape Chart Calendar →
                   </Button>
                 </Link>
               </div>
@@ -373,9 +384,9 @@ export default function RootHomePage() {
               </div>
 
               <div className="pt-4 border-t border-stone-100">
-                <Link href={user ? '/dashboard/channels' : '/login'} className="block">
+                <Link href="/dashboard/channels" className="block">
                   <Button className="w-full bg-[#c1d8f0] hover:bg-[#acc8e6] text-slate-900 font-semibold border border-[#a8c6e5] rounded-xl text-xs py-2.5 shadow-xs cursor-pointer transition-transform hover:-translate-y-0.5">
-                    {user ? 'Manage OTA Connections →' : 'Launch Channel Manager →'}
+                    Manage OTA Connections →
                   </Button>
                 </Link>
               </div>
@@ -447,10 +458,12 @@ export default function RootHomePage() {
             <span>The Modern Hospitality Operating System</span>
           </div>
 
-          <div className="flex items-center gap-6 text-slate-600 font-medium">
-            <Link href="/dashboard" className="hover:text-slate-900 transition">PMS Tape Chart</Link>
+          <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-slate-600 font-medium">
+            <Link href="/dashboard/calendar" className="hover:text-slate-900 transition">PMS Tape Chart</Link>
+            <Link href="/dashboard/channels" className="hover:text-slate-900 transition">Channel Sync</Link>
             <Link href="/stays" className="hover:text-slate-900 transition">Direct Booking Engine</Link>
-            {user ? (
+            <Link href="/dashboard/guests" className="hover:text-slate-900 transition">Guest Directory</Link>
+            {mounted && user ? (
               <Link href="/dashboard" className="hover:text-slate-900 transition">Dashboard</Link>
             ) : (
               <Link href="/login" className="hover:text-slate-900 transition">Sign In</Link>
