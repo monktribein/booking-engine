@@ -11,6 +11,8 @@ reservations**, not the public API clients use (see [PUBLIC_API.md](PUBLIC_API.m
 | **MOCK** | Test/dev only | A fake OTA used by tests and local development (`MOCK_CHANNEL_ENABLED`, refused in production). It is **not** an integration. |
 | **Airbnb, Booking.com, Agoda** | **Not connected** | Adapters exist as `PartnerChannelAdapter` stubs. Every call fails with the non-retryable `CHANNEL_INTEGRATION_NOT_AVAILABLE`. These OTAs only grant connectivity APIs to approved partners under their own programmes (Airbnb Software Connectivity Partner, Booking.com Connectivity Partner Programme, Agoda connectivity partner programme). Nothing here uses undocumented or reverse-engineered APIs. |
 
+Payment, payout, commission and net-amount visibility for channel bookings is documented in [PAYMENT_VISIBILITY.md](PAYMENT_VISIBILITY.md). It reads nothing from Airbnb, Booking.com or Agoda: those adapters stay unavailable until official integrations exist, and an adapter must only fill `NormalizedReservationEvent.payment` with values copied from the provider's own response (omit it when nothing is reported).
+
 Do not describe Airbnb, Agoda or Booking.com as connected until an adapter has been written against the partner
 documentation **and** verified against that partner's certification/sandbox.
 

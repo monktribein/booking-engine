@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useId, useRef } from 'react';
 import { cn } from '@/lib/utils/cn';
+import { useModalFocus } from '@/lib/hooks/use-modal-focus';
 import { X } from 'lucide-react';
 
 export interface DrawerProps {
@@ -21,19 +22,9 @@ export function Drawer({
   children,
   width = 'lg',
 }: DrawerProps) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModalFocus(isOpen, onClose, ref);
 
   if (!isOpen) return null;
 
@@ -54,22 +45,29 @@ export function Drawer({
 
       <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
         <div
+          ref={ref}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? titleId : undefined}
+          tabIndex={-1}
           className={cn(
-            'w-screen bg-white shadow-2xl transition-transform border-l border-stone-200 flex flex-col',
+            'w-screen bg-white shadow-2xl outline-none transition-transform border-l border-stone-200 flex flex-col',
             widths[width]
           )}
         >
           {/* Header */}
           <div className="px-6 py-5 border-b border-stone-200 flex items-center justify-between">
             <div>
-              {title && <h2 className="text-lg font-bold text-slate-900">{title}</h2>}
+              {title && <h2 id={titleId} className="text-lg font-bold text-slate-900">{title}</h2>}
               {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
             </div>
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-xl p-1.5 text-slate-400 hover:bg-stone-100 hover:text-slate-700 transition-colors cursor-pointer"
+              className="rounded-xl p-1.5 text-slate-500 hover:bg-stone-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-indigo-600 transition-colors cursor-pointer"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5" aria-hidden="true" />
+              <span className="sr-only">Close</span>
             </button>
           </div>
 

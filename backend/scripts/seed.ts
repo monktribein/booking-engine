@@ -459,7 +459,7 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
     guest: { firstName: 'Emma', lastName: 'Clarke', email: 'emma.clarke@example.co.uk' },
     rooms: [{ externalRatePlanId: 'mock-airbnb-default', quantity: 1, nightlyRates: nights(5, 8, 4025) }],
     currency: 'INR',
-    paymentCollectedByChannel: true,
+    payment: { collectedBy: 'CHANNEL', collectionSource: 'OPERATOR_CONFIG' }, // demo: declared, not provider-reported
   });
   await svc.webhooks.markProcessed(hook.event.id, airbnbOutcome.propertyId);
 
@@ -475,7 +475,7 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
     adults: 6,
     children: 2,
     rooms: [{ roomTypeId: roomTypes.family, ratePlanId: ratePlans['family.STD'], quantity: 2, nightlyRates: nights(10, 13, 6490) }],
-    paymentCollectedByChannel: false,
+    payment: { collectedBy: 'PROPERTY', collectionSource: 'OPERATOR_CONFIG' },
   });
 
   // 5. Phone booking that is then cancelled (inventory goes back).
@@ -502,7 +502,6 @@ export async function seed(db: Db, svc: Services = createServices(db)): Promise<
     checkOut: d(17),
     adults: 2,
     rooms: [{ roomTypeId: roomTypes.deluxe, ratePlanId: ratePlans['deluxe.BB'], quantity: 1, nightlyRates: nights(15, 17, 4200) }],
-    paymentCollectedByChannel: true,
   });
 
   // 7. Tirvona marketplace booking, non-refundable, paid.

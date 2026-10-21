@@ -42,6 +42,7 @@ export const bookingEngineApi = {
         rooms: [{ roomTypeId: input.roomTypeId, ratePlanId: input.ratePlanId, quantity: input.quantity }],
         guest: input.guest,
         promoCode: input.promoCode || undefined,
+        expectedTotal: input.expectedTotal,
         specialRequests: input.specialRequests || undefined,
       }),
       headers: { 'Idempotency-Key': idempotencyKey },

@@ -16,6 +16,7 @@ const TABLE_OF = {
   inventoryBlock: 'inventoryBlocks',
   ratePlan: 'ratePlans',
   promotion: 'promotions',
+  rateRule: 'rateRules',
 } as const;
 
 /**

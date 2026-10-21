@@ -121,7 +121,7 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
               <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
                 Tirvona Direct
               </span>
-              <span className="hidden sm:inline-block text-[10px] text-slate-400 ml-2 font-medium">
+              <span className="hidden sm:inline-block text-[10px] text-slate-500 ml-2 font-medium">
                 Official Hotel Booking Portal
               </span>
             </div>
@@ -163,9 +163,9 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
 
             {startingFrom !== null && (
               <div className="text-right">
-                <span className="text-xs text-slate-400 block font-medium">Starting from</span>
+                <span className="text-xs text-slate-500 block font-medium">Starting from</span>
                 <span className="text-2xl font-black text-slate-900 dark:text-slate-100">{formatCurrency(startingFrom, property.currency)}</span>
-                <span className="text-xs text-slate-400"> / night</span>
+                <span className="text-xs text-slate-500"> / night</span>
               </div>
             )}
           </div>
@@ -207,7 +207,7 @@ export default async function PropertyStayPage({ params, searchParams }: Props) 
       </main>
 
       {/* Footer */}
-      <footer className="mt-16 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-8 text-center text-xs text-slate-400">
+      <footer className="mt-16 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-8 text-center text-xs text-slate-500">
         <div className="mx-auto max-w-7xl px-4">
           © {new Date().getFullYear()} {property.name}. Powered by Tirvona Hospitality Engine.
         </div>

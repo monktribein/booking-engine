@@ -88,6 +88,8 @@ export enum RoomStatus {
   CLEANING = 'CLEANING',
   MAINTENANCE = 'MAINTENANCE',
   BLOCKED = 'BLOCKED',
+  /** Permanently out of the property's inventory. The row stays for history; the number can be reused. */
+  RETIRED = 'RETIRED',
 }
 
 // ---------------------------------------------------------------- rates & inventory
@@ -186,6 +188,37 @@ export enum ReservationPaymentStatus {
   CHANNEL_COLLECTED = 'CHANNEL_COLLECTED',
   PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED',
   REFUNDED = 'REFUNDED',
+  /** A channel booking whose payment is not reported by the channel and not recorded here. Never read it as paid or unpaid. */
+  UNKNOWN = 'UNKNOWN',
+}
+
+/** Who collects the guest's money for a channel booking, when that is known (NULL = not known). */
+export enum CollectionModel {
+  CHANNEL = 'CHANNEL',
+  PROPERTY = 'PROPERTY',
+}
+
+/** Where that knowledge came from: reported by the provider for this booking, or declared by an operator in the provider configuration. */
+export enum PaymentInfoSource {
+  PROVIDER = 'PROVIDER',
+  OPERATOR_CONFIG = 'OPERATOR_CONFIG',
+}
+
+/** A provider's payment status, normalised. Only ever set from what the provider reported. */
+export enum ProviderPaymentStatus {
+  UNPAID = 'UNPAID',
+  PAID = 'PAID',
+  PARTIALLY_PAID = 'PARTIALLY_PAID',
+  REFUNDED = 'REFUNDED',
+  PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED',
+  FAILED = 'FAILED',
+}
+
+/** A provider's payout status, normalised. Read-only information; nothing here pays anyone. */
+export enum PayoutStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
 }
 
 export enum PaymentProvider {
@@ -420,6 +453,23 @@ export const API_SCOPES = [
 /** Scopes that reveal personal or financial data, or change inventory and prices. Never granted by default. */
 export const SENSITIVE_API_SCOPES: readonly (typeof API_SCOPES)[number][] = ['rates:write', 'inventory:write', 'reservations:write', 'guests:read', 'payments:read'];
 export type ApiScope = (typeof API_SCOPES)[number];
+
+export enum RateAdjustment {
+  /** The rule's amount is the nightly price (minor units). */
+  FIXED = 'FIXED',
+  /** The rule's percent is added to the base nightly price. */
+  PERCENT = 'PERCENT',
+}
+
+export enum RateRuleStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+}
+
+export enum RedemptionStatus {
+  ACTIVE = 'ACTIVE',
+  RELEASED = 'RELEASED',
+}
 
 export enum PromotionType {
   PERCENTAGE = 'PERCENTAGE',

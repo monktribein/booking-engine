@@ -242,7 +242,7 @@ function ConnectionCard({ propertyId, channel, entry, detail, onChanged, onNotic
         {detail.feeds && (
           <div>
             <div className="mb-1 font-semibold text-slate-700 dark:text-slate-300">Calendars</div>
-            <ul className="space-y-0.5 text-slate-600 dark:text-slate-400">{detail.feeds.map((f) => <li key={f.id}>{f.name} <span className="text-slate-400">({f.host})</span></li>)}</ul>
+            <ul className="space-y-0.5 text-slate-600 dark:text-slate-400">{detail.feeds.map((f) => <li key={f.id}>{f.name} <span className="text-slate-500">({f.host})</span></li>)}</ul>
           </div>
         )}
 

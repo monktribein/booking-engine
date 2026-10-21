@@ -139,7 +139,7 @@ export function Topbar({
   const getNotificationIcon = (type: NotificationItem['type']) => {
     switch (type) {
       case 'sync':
-        return <Radio className="h-4 w-4 text-emerald-600" />;
+        return <Radio className="h-4 w-4 text-emerald-700" />;
       case 'checkin':
         return <CalendarCheck className="h-4 w-4 text-slate-700" />;
       case 'booking':
@@ -273,7 +273,7 @@ export function Topbar({
                       type="button"
                       onClick={clearAllNotifications}
                       title="Clear notifications"
-                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      className="p-1 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -284,7 +284,7 @@ export function Topbar({
               {/* Notifications List */}
               <div className="mt-3 max-h-72 overflow-y-auto space-y-2 no-scrollbar">
                 {notifications.length === 0 ? (
-                  <div className="text-center py-8 text-xs text-slate-400">
+                  <div className="text-center py-8 text-xs text-slate-500">
                     No active notifications. All systems synced.
                   </div>
                 ) : (
@@ -304,7 +304,7 @@ export function Topbar({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-1">
                           <p className="text-xs font-bold truncate">{item.title}</p>
-                          <span className="text-[10px] text-slate-400 shrink-0">{item.time}</span>
+                          <span className="text-[10px] text-slate-500 shrink-0">{item.time}</span>
                         </div>
                         <p className="text-[11px] leading-relaxed text-slate-500 mt-0.5">
                           {item.description}

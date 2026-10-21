@@ -130,7 +130,6 @@ export class MockChannelSimulationController {
           },
         ],
         currency: 'INR',
-        paymentCollectedByChannel: true,
       },
     });
     return this.webhooks.receive('MOCK', { headers: built.headers, rawBody: built.rawBody, body: built.body });

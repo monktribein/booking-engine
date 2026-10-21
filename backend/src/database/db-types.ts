@@ -110,6 +110,9 @@ export interface RoomTypesTable {
   basePrice: number;
   currency: string;
   totalRooms: number;
+  baseOccupancy: number | null;
+  extraAdultCharge: Generated<number>;
+  extraChildCharge: Generated<number>;
   amenities: Generated<string[]>;
   images: JsonDefault<Image[]>;
   sortOrder: Generated<number>;
@@ -127,6 +130,9 @@ export interface RoomsTable {
   status: Generated<string>;
   notes: string | null;
   assignmentVersion: Generated<number>;
+  retiredAt: InstantNullable;
+  retiredReason: string | null;
+  retiredBy: string | null;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -169,8 +175,63 @@ export interface PromotionsTable {
   minNights: Generated<number>;
   roomTypeIds: Generated<string[]>;
   active: Generated<boolean>;
+  maxRedemptions: number | null;
+  maxPerGuest: number | null;
+  minBookingValue: Generated<number>;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
+}
+
+export interface RateRulesTable {
+  id: Generated<string>;
+  propertyId: string;
+  roomTypeId: string;
+  ratePlanId: string | null;
+  name: string;
+  startDate: DateOnly;
+  endDate: DateOnly;
+  daysOfWeek: number[] | null;
+  adjustment: string;
+  amount: number | null;
+  percent: number | null;
+  priority: Generated<number>;
+  status: Generated<string>;
+  createdBy: string | null;
+  createdAt: GeneratedInstant;
+  updatedAt: GeneratedInstant;
+}
+
+export interface PromotionRedemptionsTable {
+  id: Generated<string>;
+  promotionId: string;
+  reservationId: string;
+  guestId: string;
+  amount: number;
+  status: Generated<string>;
+  createdAt: GeneratedInstant;
+  releasedAt: InstantNullable;
+}
+
+export interface DataRetentionPoliciesTable {
+  organizationId: string;
+  guestAnonymizeAfterDays: number | null;
+  notificationRedactAfterDays: number | null;
+  inboundPayloadRedactAfterDays: number | null;
+  enabled: Generated<boolean>;
+  approvedBy: string | null;
+  approvedAt: InstantNullable;
+  updatedBy: string | null;
+  createdAt: GeneratedInstant;
+  updatedAt: GeneratedInstant;
+}
+
+export interface DataRetentionRunsTable {
+  id: Generated<string>;
+  organizationId: string;
+  dryRun: boolean;
+  triggeredBy: string;
+  summary: Json<{ guests: number; reservations: number; notifications: number; inboundEvents: number }>;
+  createdAt: GeneratedInstant;
 }
 
 // -------------------------------------------------------------------- inventory
@@ -245,6 +306,7 @@ export interface GuestsTable {
   country: string | null;
   documents: JsonDefault<GuestDocument[]>;
   notes: string | null;
+  anonymizedAt: InstantNullable;
   createdAt: GeneratedInstant;
   updatedAt: GeneratedInstant;
 }
@@ -290,6 +352,16 @@ export interface ReservationsTable {
   amountPaid: Generated<number>;
   amountRefunded: Generated<number>;
   paymentStatus: Generated<string>;
+  collectionModel: string | null;
+  collectionSource: string | null;
+  providerPaymentStatusRaw: string | null;
+  providerPaymentStatus: string | null;
+  payoutStatusRaw: string | null;
+  payoutStatus: string | null;
+  payoutDate: InstantNullable;
+  commissionAmount: number | null;
+  netAmount: number | null;
+  paymentInfoUpdatedAt: InstantNullable;
   holdExpiresAt: InstantNullable;
   overbooked: Generated<boolean>;
   inventoryReleasedFrom: DateOnlyNullable;
@@ -308,7 +380,13 @@ export interface ReservationsTable {
 export interface NightlyRate {
   /** YYYY-MM-DD */
   date: string;
+  /** What the room costs that night (minor units): rate + extra. This is the figure that is summed. */
   amount: number;
+  /** Breakdown for server-priced bookings; absent on OTA / imported / older bookings (then rate = amount, extra = 0). */
+  rate?: number;
+  extra?: number;
+  /** Id of the rate rule that set `rate`, when one applied. */
+  ruleId?: string;
 }
 
 export interface RatePlanSnapshot {
@@ -640,6 +718,7 @@ export interface NotificationsTable {
   lastError: string | null;
   sentAt: InstantNullable;
   readAt: InstantNullable;
+  redactedAt: InstantNullable;
   createdAt: GeneratedInstant;
 }
 
@@ -773,6 +852,10 @@ export interface DB {
   rooms: RoomsTable;
   ratePlans: RatePlansTable;
   promotions: PromotionsTable;
+  rateRules: RateRulesTable;
+  promotionRedemptions: PromotionRedemptionsTable;
+  dataRetentionPolicies: DataRetentionPoliciesTable;
+  dataRetentionRuns: DataRetentionRunsTable;
   inventory: InventoryTable;
   inventoryBlocks: InventoryBlocksTable;
   restrictions: RestrictionsTable;
@@ -818,6 +901,8 @@ export type RoomType = Selectable<RoomTypesTable>;
 export type Room = Selectable<RoomsTable>;
 export type RatePlan = Selectable<RatePlansTable>;
 export type Promotion = Selectable<PromotionsTable>;
+export type RateRule = Selectable<RateRulesTable>;
+export type DataRetentionPolicy = Selectable<DataRetentionPoliciesTable>;
 export type Inventory = Selectable<InventoryTable>;
 export type InventoryBlock = Selectable<InventoryBlocksTable>;
 export type Restriction = Selectable<RestrictionsTable>;

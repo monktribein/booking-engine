@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Drawer } from '../ui/drawer';
 import { Button } from '../ui/button';
 import { Reservation, ReservationStatus } from '@/types';
+import { PaymentVisibilityPanel } from '@/components/payments/PaymentVisibilityPanel';
 import { formatCurrency } from '@/lib/utils/currency';
 import { formatDate, calculateNights } from '@/lib/utils/dates';
 import { getChannelBadge, getStatusBadgeVariant } from '@/lib/utils/formatters';
@@ -111,7 +112,7 @@ export function ReservationDrawer({
           </div>
 
           <div className="text-right">
-            <div className="text-xs text-slate-400">Total Charged</div>
+            <div className="text-xs text-slate-500">Total Charged</div>
             <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
               {formatCurrency(reservation.total, reservation.currency)}
             </div>
@@ -200,32 +201,32 @@ export function ReservationDrawer({
 
         {/* Guest Information */}
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <User className="h-4 w-4 text-indigo-500" /> Guest Details
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div>
-              <span className="text-xs text-slate-400 block">Guest Name</span>
+              <span className="text-xs text-slate-500 block">Guest Name</span>
               <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {reservation.guest.firstName} {reservation.guest.lastName}
               </span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block">Phone</span>
+              <span className="text-xs text-slate-500 block">Phone</span>
               <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                <Phone className="h-3.5 w-3.5 text-slate-400" />
+                <Phone className="h-3.5 w-3.5 text-slate-500" />
                 {reservation.guest.phone || 'Not provided'}
               </span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block">Email</span>
+              <span className="text-xs text-slate-500 block">Email</span>
               <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                <Mail className="h-3.5 w-3.5 text-slate-500" />
                 {reservation.guest.email || 'Not provided'}
               </span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block">Country</span>
+              <span className="text-xs text-slate-500 block">Country</span>
               <span className="font-medium text-slate-700 dark:text-slate-300">
                 {reservation.guest.country || '-'}
               </span>
@@ -235,25 +236,25 @@ export function ReservationDrawer({
 
         {/* Stay & Room Assignment */}
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Calendar className="h-4 w-4 text-indigo-500" /> Stay Details & Room Assignment
           </h4>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             <div>
-              <span className="text-xs text-slate-400 block">Check-in</span>
+              <span className="text-xs text-slate-500 block">Check-in</span>
               <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {formatDate(reservation.checkIn)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block">Check-out</span>
+              <span className="text-xs text-slate-500 block">Check-out</span>
               <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {formatDate(reservation.checkOut)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 block">Duration</span>
+              <span className="text-xs text-slate-500 block">Duration</span>
               <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {nights} {nights === 1 ? 'Night' : 'Nights'}
               </span>
@@ -303,9 +304,11 @@ export function ReservationDrawer({
           </div>
         </div>
 
+        <PaymentVisibilityPanel reservation={reservation} />
+
         {/* Pricing Breakdown */}
         <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2 text-sm">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Pricing Breakdown</h4>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Pricing Breakdown</h4>
           <div className="flex justify-between text-slate-600 dark:text-slate-400">
             <span>Room subtotal ({nights} nights)</span>
             <span>{formatCurrency(reservation.subtotal, reservation.currency)}</span>
@@ -315,7 +318,7 @@ export function ReservationDrawer({
             <span>{formatCurrency(reservation.taxAmount, reservation.currency)}</span>
           </div>
           {reservation.discountAmount > 0 && (
-            <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+            <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
               <span>Promotion / Discount</span>
               <span>-{formatCurrency(reservation.discountAmount, reservation.currency)}</span>
             </div>
@@ -329,13 +332,13 @@ export function ReservationDrawer({
         {/* Activity Timeline */}
         {reservation.timeline && reservation.timeline.length > 0 && (
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Activity Timeline</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Activity Timeline</h4>
             <div className="relative pl-4 space-y-3 border-l-2 border-slate-200 dark:border-slate-800">
               {reservation.timeline.map((event, idx) => (
                 <div key={idx} className="relative">
                   <div className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-indigo-600"></div>
                   <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">{event.action}</div>
-                  <div className="text-[11px] text-slate-400">
+                  <div className="text-[11px] text-slate-500">
                     {event.actor} • {formatDate(event.timestamp, 'd MMM, h:mm a')}
                   </div>
                   {event.details && <p className="text-xs text-slate-500 mt-0.5">{event.details}</p>}

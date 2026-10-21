@@ -81,7 +81,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
 
         {/* Navigation Links */}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
             PMS Operations
           </div>
           {navigation.map((item) => {
@@ -107,7 +107,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
                 <Icon
                   className={cn(
                     'h-4 w-4 shrink-0 transition-colors',
-                    isActive ? 'text-slate-900' : 'text-slate-400 group-hover:text-slate-700'
+                    isActive ? 'text-slate-900' : 'text-slate-500 group-hover:text-slate-700'
                   )}
                 />
                 <span>{item.name}</span>
@@ -115,7 +115,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
             );
           })}
 
-          <div className="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <div className="pt-4 px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
             Direct Experience
           </div>
           {published ? (
@@ -128,7 +128,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
               Guest Booking Engine
             </span>
-            <ExternalLink className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-800 transition-colors" />
+            <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-800 transition-colors" />
           </Link>
           ) : (
             <Link
@@ -161,7 +161,7 @@ export function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () =>
             <button
               onClick={() => logout()}
               title="Sign Out"
-              className="rounded-xl p-1.5 text-slate-400 hover:bg-stone-200 hover:text-slate-800 transition-colors cursor-pointer"
+              className="rounded-xl p-1.5 text-slate-500 hover:bg-stone-200 hover:text-slate-800 transition-colors cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
             </button>

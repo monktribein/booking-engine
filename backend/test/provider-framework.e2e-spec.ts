@@ -277,7 +277,7 @@ describe('Configuration-driven providers (no provider-specific code)', () => {
       expect(first.body.data).toMatchObject({ received: true, duplicate: false });
       await t.drain();
       const [r] = await reservationsOf(a.propertyId);
-      expect(r).toMatchObject({ externalReservationId: 'BK-1001', status: 'CONFIRMED', source: 'ACME_STAY', paymentStatus: 'CHANNEL_COLLECTED' });
+      expect(r).toMatchObject({ externalReservationId: 'BK-1001', status: 'CONFIRMED', source: 'ACME_STAY', paymentStatus: 'CHANNEL_COLLECTED', collectionModel: 'CHANNEL', collectionSource: 'OPERATOR_CONFIG', providerPaymentStatus: null });
       expect(r.externalScope).not.toBe('00000000-0000-0000-0000-000000000000');
       expect(fake.main.acked).toEqual(['BK-1001']);
       // the dashboard can filter by a configured provider's code

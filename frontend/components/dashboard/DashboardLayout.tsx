@@ -72,8 +72,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <Sparkles className="h-4 w-4 text-indigo-600" aria-hidden="true" /> Tirvona Developers
           </Link>
           <div className="flex items-center gap-3 text-xs">
-            <Link href="/dashboard/profile" className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">{user.name}</Link>
-            <button onClick={() => void logout()} title="Sign Out" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 cursor-pointer">
+            <Link href="/dashboard/profile" className="text-slate-600 hover:text-slate-800 dark:hover:text-slate-200">{user.name}</Link>
+            <button onClick={() => void logout()} title="Sign Out" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 cursor-pointer">
               <LogOut className="h-4 w-4" />
             </button>
           </div>

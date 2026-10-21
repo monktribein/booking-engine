@@ -23,7 +23,6 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
       guest: { firstName: 'Ota', lastName: 'Guest', email: 'ota.guest@example.com' },
       rooms: [{ externalRoomId: listing === 'MOCK-HOTEL-1' ? 'MOCK-ROOM-DLX' : null, externalRatePlanId: 'MOCK-ROOM-DLX-FLEX', quantity: 1, nightlyRates: Array.from({ length: 2 }, () => 410000) }],
       currency: 'INR',
-      paymentCollectedByChannel: true,
     },
   });
   const post = (body: MockWebhookBody, tamper = false) => {
@@ -58,7 +57,7 @@ describe('Webhooks: signature, storage, idempotency, async processing', () => {
 
     await t.drain();
     const [r] = await reservationsFor('OTA-1001');
-    expect(r).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'CHANNEL_COLLECTED', total: 2 * 410000 + 2 * 20500 });
+    expect(r).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'UNKNOWN', collectionModel: null, collectionSource: null, total: 2 * 410000 + 2 * 20500 });
     expect((await t.db.selectFrom('webhookEvents').selectAll().where('externalEventId', '=', stored!.externalEventId).executeTakeFirstOrThrow()).status).toBe('PROCESSED');
     expect(store.acknowledged.has('OTA-1001')).toBe(true);
     const days = await inventoryFor(t, owner.token, s, day(4), day(6));

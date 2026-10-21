@@ -4,9 +4,11 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { DEFAULT_PENDING_HOLD_MINUTES, MAX_STAY_NIGHTS } from '../constants';
 import { DateInput, addDays, eachNight, formatDateOnly, localDateTimeToInstant, todayIn, toDateOnly } from '../common/dates';
 import { percentOf, sum } from '../common/money';
+import { NightPrice, allocateGuests, baseOccupancyOf, extraGuestCharge, priceRoomNights } from '../common/pricing';
+import { ChannelPaymentInfo, NO_PAYMENT_INFO, hasProviderPaymentFields, initialChannelPaymentStatus, normalizePaymentInfo } from '../common/payment-info';
 import { redactSecrets } from '../common/redact';
 import { evaluateRestrictions } from '../common/restrictions';
-import type { GuestSnapshot, Payment, Property, RatePlan, Refund, RoomType } from '../db-types';
+import type { GuestSnapshot, Payment, Promotion, Property, RatePlan, Refund, RoomType } from '../db-types';
 import {
   CancellationPenaltyType,
   NotificationChannel,
@@ -28,6 +30,7 @@ import {
 } from '../enums';
 import {
   ConflictError,
+  DomainError,
   DomainValidationError,
   InsufficientInventoryError,
   InvalidStateTransitionError,
@@ -39,6 +42,8 @@ import { NewNotification, insertNotifications } from '../repos';
 import { Reservation, ReservationRoom, findReservation, insertReservation, saveReservation } from '../reservation-store';
 import { d } from '../sql';
 import { AuditService } from './audit.service';
+import { LoadedRule, loadRateRules } from './rate-engine';
+import { assertMinimumValue, assertWithinLimits, discountFor, findPromotion, recordRedemption, releaseRedemption } from './promotion';
 import { ClientEventService } from './client-event.service';
 import { InventoryService } from './inventory.service';
 import { SyncJobService } from './sync-job.service';
@@ -73,10 +78,18 @@ export interface CreateReservationInput {
     /** Per-night prices sent by an OTA, or entered by staff. Public direct bookings are always priced by us. */
     nightlyRates?: number[];
   }>;
+  /** Manual (staff) discount in minor units. Not combinable with promotionCode. */
   discount?: number;
+  /** A promotion code: validated, limited and recorded as a redemption inside the booking transaction. */
+  promotionCode?: string;
+  /** The total the guest was quoted. If the server-calculated total differs the booking is refused with PRICE_CHANGED. */
+  expectedTotal?: number;
   specialRequests?: string;
-  /** OTA collected the money (Booking.com "Payments by Booking", Airbnb, ...). */
-  paymentCollectedByChannel?: boolean;
+  /**
+   * What the channel or the operator's provider configuration says about who collects the money, with its provenance. Omit it when
+   * nothing is known: the booking is then stored as UNKNOWN, never as paid or collected. Ignored for non-channel sources.
+   */
+  payment?: ChannelPaymentInfo;
   createdBy?: Id | null;
   /** Extra context for the audit log (promo code, client IP, ...). */
   auditMetadata?: Record<string, unknown>;
@@ -157,7 +170,8 @@ export class ReservationService {
     const rtById = new Map(roomTypes.map((rt) => [rt.id, rt]));
     const rpById = new Map(ratePlans.map((rp) => [rp.id, rp]));
 
-    const lines = this.priceLines(input, property, rtById, rpById, nights, { isOta, isPublicDirect });
+    const rules = await loadRateRules(this.db, property.id, roomTypeIds, checkIn, checkOut);
+    const lines = this.priceLines(input, property, rtById, rpById, nights, { isOta, isPublicDirect }, rules);
     const demand = new Map<string, number>();
     for (const l of lines) demand.set(l.roomTypeId, (demand.get(l.roomTypeId) ?? 0) + l.quantity);
 
@@ -171,11 +185,23 @@ export class ReservationService {
 
     const subtotal = sum(lines.map((l) => l.subtotal));
     const tax = sum(lines.map((l) => l.tax));
-    const discount = input.discount ?? 0;
+    let discount = input.discount ?? 0;
+    let promo: Promotion | undefined;
+    if (input.promotionCode) {
+      if (discount) throw new DomainValidationError('Use either a promotion code or a manual discount, not both');
+      const promoLines = lines.map((l) => ({ roomTypeId: l.roomTypeId, total: l.total }));
+      promo = await findPromotion(this.db, property.id, input.promotionCode, checkIn, checkOut);
+      assertMinimumValue(promo, promoLines);
+      await assertWithinLimits(this.db, promo); // fail fast; the binding check runs under a row lock in the transaction
+      discount = discountFor(promo, promoLines);
+    }
     if (!Number.isInteger(discount) || discount < 0 || discount > subtotal + tax) throw new DomainValidationError('Invalid discount');
+    if (input.expectedTotal !== undefined && input.expectedTotal !== subtotal + tax - discount) {
+      throw new DomainError('PRICE_CHANGED', 'The price changed since it was quoted. Review the new total and confirm again.', { expectedTotal: input.expectedTotal, total: subtotal + tax - discount, currency: property.currency });
+    }
 
     const status = input.status ?? (isPublicDirect ? ReservationStatus.PENDING : ReservationStatus.CONFIRMED);
-    const channelCollected = isOta && !!input.paymentCollectedByChannel;
+    const paymentInfo = isOta ? normalizePaymentInfo(input.payment) : { ...NO_PAYMENT_INFO };
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -183,6 +209,14 @@ export class ReservationService {
           if (!isOta) await this.assertRestrictions(tx, property.id, roomTypeIds, checkIn, checkOut);
 
           const guest = await this.resolveGuest(tx, property.id, input.guest);
+          if (promo) {
+            // Row lock on the promotion: concurrent redemptions queue here, so the limits cannot be exceeded by a race.
+            const locked = await findPromotion(tx, property.id, input.promotionCode!, checkIn, checkOut, true);
+            await assertWithinLimits(tx, locked, guest.id);
+            if (discountFor(locked, lines.map((l) => ({ roomTypeId: l.roomTypeId, total: l.total }))) !== discount) {
+              throw new DomainError('PRICE_CHANGED', 'The promotion changed while you were booking. Review the new total and confirm again.');
+            }
+          }
 
           let overbookedUnits = 0;
           for (const [rtId, quantity] of demand) {
@@ -217,7 +251,8 @@ export class ReservationService {
               discount,
               total: subtotal + tax - discount,
               currency: property.currency,
-              paymentStatus: channelCollected ? ReservationPaymentStatus.CHANNEL_COLLECTED : ReservationPaymentStatus.UNPAID,
+              paymentStatus: isOta ? (initialChannelPaymentStatus(paymentInfo) as ReservationPaymentStatus) : ReservationPaymentStatus.UNPAID,
+              ...paymentInfo,
               holdExpiresAt: status === ReservationStatus.PENDING ? new Date(now.getTime() + DEFAULT_PENDING_HOLD_MINUTES * 60_000) : null,
               overbooked: overbookedUnits > 0,
               inventoryReleasedFrom: null,
@@ -231,6 +266,7 @@ export class ReservationService {
             lines,
           );
 
+          if (promo) await recordRedemption(tx, promo.id, doc.id, guest.id, discount);
           for (const rtId of demand.keys()) {
             await this.syncJobs.enqueueForRoomType(tx, {
               propertyId: property.id,
@@ -319,10 +355,11 @@ export class ReservationService {
       for (const [rtId, quantity] of demandOf(r.reservationRooms)) {
         await this.inventory.release(tx, { propertyId: r.propertyId, roomTypeId: rtId, checkIn: r.checkIn, checkOut: r.checkOut, quantity });
       }
+      await releaseRedemption(tx, r.id, now); // a cancelled booking or an expired hold gives its promotion use back
 
       const refunds =
         r.paymentStatus === ReservationPaymentStatus.CHANNEL_COLLECTED
-          ? [] // the OTA refunds its own guest
+          ? [] // no refund is created HERE: the channel is responsible for collection, so it owns any refund. That a refund happened is NOT recorded (it is not known)
           : await this.createRefunds(tx, r, input.refundAmount ?? this.policyRefund(r, property, now), input.reason, input.cancelledBy ?? null);
 
       for (const [rtId] of demandOf(r.reservationRooms)) {
@@ -595,15 +632,22 @@ export class ReservationService {
         const planIds = r.reservationRooms.flatMap((l) => (l.ratePlanId ? [l.ratePlanId] : []));
         const ratePlans = planIds.length ? await tx.selectFrom('ratePlans').select(['id', 'basePrice']).where('id', 'in', planIds).execute() : [];
         const rpById = new Map(ratePlans.map((rp) => [rp.id, rp]));
+        // Nights that stay keep the price they were sold at. Nights that are new are priced today, by the same rules as a new booking.
+        const pricer = isOta ? undefined : await this.linePricer(tx, r, newIn, newOut, input.adults ?? r.adults, input.children ?? r.children);
         for (const [i, line] of r.reservationRooms.entries()) {
-          const old = new Map(line.nightlyRates.map((n) => [n.date, n.amount]));
+          const old = new Map(line.nightlyRates.map((n) => [n.date, n]));
           const fallback = line.nightlyRates[line.nightlyRates.length - 1]?.amount ?? 0;
           const provided = input.nightlyRatesByLine?.[i];
           if (provided && provided.length !== nights.length) throw new DomainValidationError('nightlyRatesByLine must have one price per night');
           const planPrice = line.ratePlanId ? rpById.get(line.ratePlanId)?.basePrice : undefined;
-          const rates = nights.map((night, k) => provided?.[k] ?? old.get(formatDateOnly(night)) ?? planPrice ?? fallback);
-          line.nightlyRates = nights.map((night, k) => ({ date: formatDateOnly(night), amount: rates[k] }));
-          line.subtotal = sum(rates) * line.quantity;
+          line.nightlyRates = nights.map((night, k): NightPrice | { date: string; amount: number } => {
+            const date = formatDateOnly(night);
+            if (provided?.[k] !== undefined) return { date, amount: provided[k] };
+            const kept = old.get(date);
+            if (kept) return kept;
+            return pricer?.price(i, night, planPrice) ?? { date, amount: planPrice ?? fallback };
+          });
+          line.subtotal = sum(line.nightlyRates.map((n) => n.amount)) * line.quantity;
           line.tax = percentOf(line.subtotal, property.taxPercent);
           line.total = line.subtotal + line.tax;
 
@@ -622,14 +666,8 @@ export class ReservationService {
         r.checkIn = newIn;
         r.checkOut = newOut;
         r.nights = nights.length;
-        r.subtotal = sum(r.reservationRooms.map((l) => l.subtotal));
-        r.tax = sum(r.reservationRooms.map((l) => l.tax));
-        r.discount = Math.min(r.discount, r.subtotal + r.tax);
-        r.total = r.subtotal + r.tax - r.discount;
+        this.retotal(r);
         if (overbookedUnits) r.overbooked = true;
-        if (r.paymentStatus !== ReservationPaymentStatus.CHANNEL_COLLECTED && r.amountPaid > 0) {
-          r.paymentStatus = r.amountPaid >= r.total ? ReservationPaymentStatus.PAID : ReservationPaymentStatus.PARTIALLY_PAID;
-        }
       }
 
       if (input.adults !== undefined) r.adults = input.adults;
@@ -640,6 +678,25 @@ export class ReservationService {
         const cap = new Map(types.map((t) => [t.id, t.maxOccupancy]));
         const capacity = sum(r.reservationRooms.map((l) => (cap.get(l.roomTypeId) ?? 0) * l.quantity));
         if (r.adults + r.children > capacity) throw new DomainValidationError(`Rooms on this reservation sleep at most ${capacity} guests`);
+        // Extra-guest charges follow the party. Rates the stay was sold at are untouched.
+        const totalBefore = r.total;
+        const pricer = await this.linePricer(tx, r, r.checkIn, r.checkOut, r.adults, r.children);
+        if (pricer) {
+          for (const [i, line] of r.reservationRooms.entries()) {
+            const extra = extraGuestCharge(pricer.party[i], pricer.terms(line.roomTypeId));
+            line.nightlyRates = line.nightlyRates.map((n) => {
+              const rate = n.rate ?? n.amount - (n.extra ?? 0);
+              return { ...n, rate, extra, amount: rate + extra };
+            });
+            line.subtotal = sum(line.nightlyRates.map((n) => n.amount)) * line.quantity;
+            line.tax = percentOf(line.subtotal, property.taxPercent);
+            line.total = line.subtotal + line.tax;
+          }
+          this.retotal(r);
+          if (r.total !== totalBefore && r.status === ReservationStatus.PENDING) {
+            throw new DomainValidationError('This change alters the price while the booking is waiting for payment. Complete or cancel the payment first.');
+          }
+        }
       }
       if (input.specialRequests !== undefined) r.specialRequests = input.specialRequests;
       if (input.guest) {
@@ -677,6 +734,44 @@ export class ReservationService {
       await this.emitUpdated(tx, r, datesChanged ? 'dates' : 'details');
       return r;
     });
+  }
+
+  /**
+   * Records what a provider reported about a booking's money (status, payout, commission, net amount). Read-only visibility: it never
+   * changes amounts paid, refunds or the booking's status. A collection model is only filled in when none is known yet; it is never
+   * replaced. Returns false when the event carried nothing to record or the booking does not exist.
+   */
+  async refreshChannelPaymentInfo(source: string, externalReservationId: string, externalScope: string, info: ChannelPaymentInfo | undefined, now = new Date()): Promise<boolean> {
+    if (!isChannelSource(source)) return false;
+    const cols = normalizePaymentInfo(info, now);
+    const provider = hasProviderPaymentFields(cols);
+    if (!provider && !cols.collectionModel) return false;
+    const r = await this.db
+      .selectFrom('reservations')
+      .select(['id', 'paymentStatus', 'collectionModel'])
+      .where('source', '=', source)
+      .where('externalScope', '=', externalScope)
+      .where('externalReservationId', '=', externalReservationId)
+      .executeTakeFirst();
+    if (!r) return false;
+    const set: Record<string, unknown> = {};
+    if (provider) {
+      Object.assign(set, {
+        providerPaymentStatusRaw: cols.providerPaymentStatusRaw,
+        providerPaymentStatus: cols.providerPaymentStatus,
+        payoutStatusRaw: cols.payoutStatusRaw,
+        payoutStatus: cols.payoutStatus,
+        payoutDate: cols.payoutDate,
+        commissionAmount: cols.commissionAmount,
+        netAmount: cols.netAmount,
+        paymentInfoUpdatedAt: now,
+      });
+    }
+    if (r.collectionModel === null && cols.collectionModel && r.paymentStatus === ReservationPaymentStatus.UNKNOWN) {
+      Object.assign(set, { collectionModel: cols.collectionModel, collectionSource: cols.collectionSource, paymentStatus: initialChannelPaymentStatus(cols) });
+    }
+    await this.db.updateTable('reservations').set(set).where('id', '=', r.id).execute();
+    return true;
   }
 
   /** OTA modifications arrive with the channel's ID. */
@@ -852,9 +947,10 @@ export class ReservationService {
       .set({ assignmentVersion: sql`assignment_version + 1` })
       .where('id', '=', roomId)
       .where('propertyId', '=', r.propertyId)
-      .returning(['id', 'roomTypeId', 'roomNumber'])
+      .returning(['id', 'roomTypeId', 'roomNumber', 'status'])
       .executeTakeFirst();
     if (!room) throw new NotFoundError('Room', roomId);
+    if (room.status === RoomStatus.RETIRED) throw new DomainValidationError('Room is retired and cannot be assigned');
     if (room.roomTypeId !== line.roomTypeId) throw new DomainValidationError('Room is of a different room type');
     if (r.reservationRooms.some((l) => l.id !== line.id && l.roomId === room.id)) {
       throw new DomainValidationError('Room is already assigned to another line of this reservation');
@@ -893,6 +989,42 @@ export class ReservationService {
     await this.clientEvents.emit(tx, { type: 'reservation.updated', property, reservation: r, discriminator: `${change}:${randomUUID()}`, extra: { change } });
   }
 
+  /** Recomputes the reservation totals from its lines. The discount can never exceed what is left to pay for. */
+  private retotal(r: Reservation) {
+    r.subtotal = sum(r.reservationRooms.map((l) => l.subtotal));
+    r.tax = sum(r.reservationRooms.map((l) => l.tax));
+    r.discount = Math.min(r.discount, r.subtotal + r.tax);
+    r.total = r.subtotal + r.tax - r.discount;
+    if (r.paymentStatus !== ReservationPaymentStatus.CHANNEL_COLLECTED && r.amountPaid > 0) {
+      r.paymentStatus = r.amountPaid >= r.total ? ReservationPaymentStatus.PAID : ReservationPaymentStatus.PARTIALLY_PAID;
+    }
+  }
+
+  /**
+   * Prices nights of an existing, server-priced reservation with today's rules and its current party. Undefined when the
+   * reservation cannot be re-priced by rules (a line holds several rooms, as some OTA imports do).
+   */
+  private async linePricer(tx: Db, r: Reservation, from: Date, to: Date, adults: number, children: number) {
+    if (isChannelSource(r.source) || r.reservationRooms.some((l) => l.quantity !== 1)) return undefined;
+    const typeIds = [...new Set(r.reservationRooms.map((l) => l.roomTypeId))];
+    const types = new Map((await tx.selectFrom('roomTypes').selectAll().where('id', 'in', typeIds).execute()).map((t) => [t.id, t]));
+    const rules = await loadRateRules(tx, r.propertyId, typeIds, from, to);
+    const party = allocateGuests(
+      r.reservationRooms.map((l) => ({ baseOccupancy: baseOccupancyOf(types.get(l.roomTypeId)!), maxOccupancy: types.get(l.roomTypeId)!.maxOccupancy })),
+      adults,
+      children,
+    );
+    const terms = (roomTypeId: string) => types.get(roomTypeId)!;
+    return {
+      party,
+      terms,
+      price: (i: number, night: Date, planPrice: number | undefined): NightPrice => {
+        const line = r.reservationRooms[i];
+        return priceRoomNights({ nights: [night], basePrice: planPrice ?? terms(line.roomTypeId).basePrice, ratePlanId: line.ratePlanId, rules: rules.filter((x) => x.roomTypeId === line.roomTypeId), guests: party[i], terms: terms(line.roomTypeId) })[0];
+      },
+    };
+  }
+
   private async findIdempotent(input: CreateReservationInput): Promise<Reservation | null> {
     if (input.externalReservationId) {
       return findReservation(this.db, { source: input.source, externalReservationId: input.externalReservationId, externalScope: input.externalScope });
@@ -914,8 +1046,10 @@ export class ReservationService {
     rpById: Map<string, RatePlan>,
     nights: Date[],
     ctx: { isOta: boolean; isPublicDirect: boolean },
+    rules: LoadedRule[],
   ): Omit<ReservationRoom, 'id'>[] {
-    return input.rooms.flatMap((req) => {
+    // One entry per physical room requested, validated first so a bad request fails before anything is priced.
+    const rooms = input.rooms.flatMap((req) => {
       const rt = rtById.get(req.roomTypeId);
       if (!rt) throw new NotFoundError('RoomType', req.roomTypeId);
       if (!ctx.isOta && rt.status !== RoomTypeStatus.ACTIVE) throw new DomainValidationError(`${rt.name} is not bookable`);
@@ -926,23 +1060,37 @@ export class ReservationService {
       if (rp && !ctx.isOta && rp.status !== RatePlanStatus.ACTIVE) throw new DomainValidationError(`Rate plan ${rp.code} is not active`);
       if (!rp && !ctx.isOta) throw new DomainValidationError('ratePlanId is required');
       if (rp && rp.currency !== property.currency) throw new DomainValidationError('Rate plan currency differs from property currency');
-
-      let rates: number[];
       if (req.nightlyRates) {
         if (ctx.isPublicDirect) throw new DomainValidationError('Direct bookings are priced by the server');
         if (req.nightlyRates.length !== nights.length || req.nightlyRates.some((a) => !Number.isInteger(a) || a < 0)) {
           throw new DomainValidationError('nightlyRates must be one non-negative integer per night');
         }
-        rates = req.nightlyRates;
-      } else {
-        // Flat rate-plan price. A per-date price calendar would be read here.
-        rates = nights.map(() => rp?.basePrice ?? rt.basePrice);
       }
+      return Array.from({ length: req.quantity }, () => ({ req, rt, rp }));
+    });
 
-      const nightlyRates = nights.map((date, i) => ({ date: formatDateOnly(date), amount: rates[i] }));
-      const subtotal = sum(rates);
+    // The party is seated deterministically, so the quote and this booking charge the same extra-guest amounts.
+    const party = allocateGuests(
+      rooms.map(({ rt }) => ({ baseOccupancy: baseOccupancyOf(rt), maxOccupancy: rt.maxOccupancy })),
+      input.adults,
+      input.children ?? 0,
+    );
+
+    return rooms.map(({ req, rt, rp }, i) => {
+      const nightlyRates: NightPrice[] | { date: string; amount: number }[] = req.nightlyRates
+        ? // Prices sent by an OTA or entered by staff are taken as given.
+          nights.map((date, k) => ({ date: formatDateOnly(date), amount: req.nightlyRates![k] }))
+        : priceRoomNights({
+            nights,
+            basePrice: rp?.basePrice ?? rt.basePrice,
+            ratePlanId: rp?.id ?? null,
+            rules: rules.filter((r) => r.roomTypeId === rt.id),
+            guests: party[i],
+            terms: rt,
+          });
+      const subtotal = sum(nightlyRates.map((n) => n.amount));
       const tax = percentOf(subtotal, property.taxPercent);
-      const line: Omit<ReservationRoom, 'id'> = {
+      return {
         roomTypeId: rt.id,
         roomTypeName: rt.name,
         roomId: null,
@@ -954,9 +1102,7 @@ export class ReservationService {
         subtotal,
         tax,
         total: subtotal + tax,
-      };
-      // One line per physical room, so each can receive its own roomId later.
-      return Array.from({ length: req.quantity }, () => ({ ...line }));
+      } satisfies Omit<ReservationRoom, 'id'>;
     });
   }
 

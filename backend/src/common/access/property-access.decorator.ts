@@ -11,7 +11,8 @@ export type ScopedEntity =
   | 'payment'
   | 'inventoryBlock'
   | 'ratePlan'
-  | 'promotion';
+  | 'promotion'
+  | 'rateRule';
 
 export interface PropertyAccessRule {
   permission: Permission;

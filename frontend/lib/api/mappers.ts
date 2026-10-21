@@ -8,6 +8,7 @@
  */
 import {
   ChannelConnectionStatus,
+  ChannelPaymentVisibility,
   ChannelKind,
   ChannelListing,
   ChannelStatusInfo,
@@ -86,6 +87,10 @@ export function mapPromotion(p: Raw): Promotion {
     validFrom: dateOnly(p.validFrom),
     validTo: dateOnly(p.validTo),
     isActive: p.active,
+    maxRedemptions: p.maxRedemptions ?? null,
+    maxPerGuest: p.maxPerGuest ?? null,
+    minBookingValue: p.minBookingValue ?? 0,
+    redeemed: p.redeemed,
   };
 }
 
@@ -98,10 +103,34 @@ export function promotionBody(p: Partial<Promotion>): Record<string, unknown> {
     validFrom: p.validFrom,
     validTo: p.validTo,
     active: p.isActive,
+    maxRedemptions: p.maxRedemptions ?? undefined,
+    maxPerGuest: p.maxPerGuest ?? undefined,
+    minBookingValue: p.minBookingValue || undefined,
   });
 }
 
 // ---------------------------------------------------------------- reservations
+/**
+ * What the backend knows about the money of a channel booking. A null column is left undefined ("not reported"); nothing is
+ * defaulted, and the result is undefined when the backend reported nothing at all.
+ */
+export function mapChannelPayment(r: Raw): ChannelPaymentVisibility | undefined {
+  const pick = <T,>(v: T | null | undefined): T | undefined => (v === null || v === undefined ? undefined : v);
+  const out: ChannelPaymentVisibility = {
+    collectionModel: pick(r.collectionModel),
+    collectionSource: pick(r.collectionSource),
+    providerPaymentStatusRaw: pick(r.providerPaymentStatusRaw),
+    providerPaymentStatus: pick(r.providerPaymentStatus),
+    payoutStatusRaw: pick(r.payoutStatusRaw),
+    payoutStatus: pick(r.payoutStatus),
+    payoutDate: pick(r.payoutDate),
+    commissionAmount: pick(r.commissionAmount),
+    netAmount: pick(r.netAmount),
+    updatedAt: pick(r.paymentInfoUpdatedAt),
+  };
+  return Object.values(out).some((v) => v !== undefined) ? stripUndefined({ ...out }) : undefined;
+}
+
 export function mapReservation(r: Raw): Reservation {
   const rooms: ReservationRoom[] = (r.reservationRooms ?? []).map((rr: Raw) => ({
     _id: rr._id,
@@ -144,6 +173,7 @@ export function mapReservation(r: Raw): Reservation {
     currency: r.currency,
     amountPaid: r.amountPaid,
     amountRefunded: r.amountRefunded,
+    channelPayment: mapChannelPayment(r),
     holdExpiresAt: r.holdExpiresAt ?? undefined,
     channelReservationId: r.externalReservationId,
     specialRequests: r.specialRequests,
@@ -332,6 +362,8 @@ export function mapAvailability(items: Raw[], property?: Pick<PublicPropertyData
         subtotal: rp.subtotal,
         discountAmount: rp.discount ?? 0,
         taxAmount: rp.tax,
+        extraGuestCharges: rp.extraGuestCharges ?? 0,
+        promoProblem: rp.promoProblem,
         cancellationDescription: rp.cancellationPolicy?.description ?? '',
       })),
     };

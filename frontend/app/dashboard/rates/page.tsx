@@ -15,6 +15,7 @@ import { errorMessage } from '@/lib/utils/errors';
 import { formatDate, formatISODate } from '@/lib/utils/dates';
 import { Promotion, RatePlan, RatePlanType } from '@/types';
 import { ratesApi } from '@/lib/api/rates';
+import { RateRulesPanel } from '@/components/rates/RateRulesPanel';
 import { roomTypesApi } from '@/lib/api/room-types';
 import { Plus, Edit, Tag } from 'lucide-react';
 import { addDays } from 'date-fns';
@@ -86,6 +87,10 @@ export default function RatesManagementPage() {
   const [promoPercent, setPromoPercent] = useState(10);
   const [promoFrom, setPromoFrom] = useState(formatISODate(new Date()));
   const [promoTo, setPromoTo] = useState(formatISODate(addDays(new Date(), 90)));
+  // Optional limits; empty = unlimited / no minimum.
+  const [promoMax, setPromoMax] = useState('');
+  const [promoPerGuest, setPromoPerGuest] = useState('');
+  const [promoMinValue, setPromoMinValue] = useState('');
   const promoMutation = useMutation({
     mutationFn: () =>
       ratesApi.createPromotion(propertyId as string, {
@@ -95,6 +100,9 @@ export default function RatesManagementPage() {
         validFrom: promoFrom,
         validTo: promoTo,
         isActive: true,
+        maxRedemptions: promoMax === '' ? undefined : Number(promoMax),
+        maxPerGuest: promoPerGuest === '' ? undefined : Number(promoPerGuest),
+        minBookingValue: promoMinValue === '' ? undefined : Math.round(Number(promoMinValue) * 100),
       } as Partial<Promotion>),
     onSuccess: async () => {
       setPromoOpen(false);
@@ -178,7 +186,7 @@ export default function RatesManagementPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <div className="text-base font-black text-slate-900 dark:text-slate-100">{formatCurrency(plan.basePrice, plan.currency)}</div>
-                          <span className="text-[10px] text-slate-400 font-medium">Base Nightly</span>
+                          <span className="text-[10px] text-slate-500 font-medium">Base Nightly</span>
                         </div>
                       </CardHeader>
                       <CardContent className="p-3.5 flex items-center justify-between">
@@ -202,6 +210,17 @@ export default function RatesManagementPage() {
                 </div>
               )}
             </QueryState>
+
+            {currentRoomType && (
+              <RateRulesPanel
+                propertyId={propertyId}
+                timezone={activeProperty?.timezone}
+                currency={currentRoomType.currency}
+                roomTypeId={currentRoomType._id}
+                roomTypeName={currentRoomType.name}
+                plans={plansForType}
+              />
+            )}
           </>
         )}
       </QueryState>
@@ -226,11 +245,18 @@ export default function RatesManagementPage() {
                   <li key={p._id} className="flex items-center justify-between py-2.5">
                     <div>
                       <span className="font-bold">{p.code}</span> <span className="text-slate-500 text-xs">{p.description}</span>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-slate-500">
                         {formatDate(p.validFrom)} – {formatDate(p.validTo)}
                       </div>
                     </div>
-                    <span className="text-xs font-semibold">{p.discountPercent}% off {p.isActive ? '' : '(inactive)'}</span>
+                    <div className="text-right">
+                      <span className="text-xs font-semibold">{p.discountPercent}% off {p.isActive ? '' : '(inactive)'}</span>
+                      <div className="text-[11px] text-slate-500">
+                        Used {p.redeemed ?? 0}{p.maxRedemptions ? ` of ${p.maxRedemptions}` : ''}
+                        {p.maxPerGuest ? ` · ${p.maxPerGuest} per guest` : ''}
+                        {p.minBookingValue ? ` · min ${formatCurrency(p.minBookingValue, activeProperty?.currency ?? 'INR')}` : ''}
+                      </div>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -279,6 +305,14 @@ export default function RatesManagementPage() {
             <Input label="Valid from *" type="date" required value={promoFrom} onChange={(e) => setPromoFrom(e.target.value)} />
             <Input label="Valid to *" type="date" required min={promoFrom} value={promoTo} onChange={(e) => setPromoTo(e.target.value)} />
           </div>
+          <fieldset className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">
+            <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Limits (leave empty for none)</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input label="Total uses" type="number" min={1} value={promoMax} onChange={(e) => setPromoMax(e.target.value)} helperText="Cancelled bookings give the use back" />
+              <Input label="Uses per guest" type="number" min={1} value={promoPerGuest} onChange={(e) => setPromoPerGuest(e.target.value)} helperText="Counted per e-mail address" />
+              <Input label="Minimum booking (₹)" type="number" min={0} value={promoMinValue} onChange={(e) => setPromoMinValue(e.target.value)} helperText="After tax, before the discount" />
+            </div>
+          </fieldset>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => setPromoOpen(false)}>Cancel</Button>
             <Button type="submit" isLoading={promoMutation.isPending} disabled={promoMutation.isPending}>Create Promotion</Button>

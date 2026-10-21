@@ -106,13 +106,51 @@ describe('GenericRestAdapter conformance (local fake provider)', () => {
   });
 
   describe('reservations', () => {
+    it('payment data: nothing declared and nothing reported means no payment information at all', async () => {
+      fake.bookings = [sampleBooking({ id: 'BK-NP' })];
+      const pull = await adapter({}, (d) => delete d.reservationMapping.paymentCollection).pullReservations(new Date('2027-01-01T00:00:00Z'));
+      expect(pull.events[0].payment).toBeUndefined();
+    });
+
+    it('payment data: a legacy boolean is read as an operator declaration', async () => {
+      fake.bookings = [sampleBooking({ id: 'BK-LG' })];
+      const pull = await adapter({}, (d) => { delete d.reservationMapping.paymentCollection; d.reservationMapping.paymentCollectedByChannel = false; }).pullReservations(new Date('2027-01-01T00:00:00Z'));
+      expect(pull.events[0].payment).toEqual({ collectedBy: 'PROPERTY', collectionSource: 'OPERATOR_CONFIG' });
+    });
+
+    it('payment data: only what the provider response contains is read, through the operator mapping', async () => {
+      const fields = { statusPath: '$.payment.status', statusMap: { captured: 'PAID' }, payoutStatusPath: '$.payment.payout_state', payoutStatusMap: { sent: 'COMPLETED' }, payoutDatePath: '$.payment.payout_date', commissionPath: '$.payment.fee', netAmountPath: '$.payment.net', amountUnit: 'MAJOR' };
+      fake.bookings = [
+        sampleBooking({ id: 'BK-P1', payment: { status: 'captured', payout_state: 'sent', payout_date: '2027-03-20T00:00:00Z', fee: 1234.5, net: 7766 } }),
+        sampleBooking({ id: 'BK-P2', payment: { status: 'weird-word' } }), // unmapped word: raw only
+        sampleBooking({ id: 'BK-P3' }), // the provider says nothing: the declaration alone is kept, no status is invented
+      ];
+      const pull = await adapter({}, (d) => (d.reservationMapping.paymentFields = fields)).pullReservations(new Date('2027-01-01T00:00:00Z'));
+      const byId = Object.fromEntries(pull.events.map((e) => [e.externalReservationId, e.payment]));
+      expect(byId['BK-P1']).toEqual({
+        collectedBy: 'CHANNEL',
+        collectionSource: 'OPERATOR_CONFIG',
+        providerStatusRaw: 'captured',
+        providerStatus: 'PAID',
+        payoutStatusRaw: 'sent',
+        payoutStatus: 'COMPLETED',
+        payoutDate: new Date('2027-03-20T00:00:00Z'),
+        commissionAmount: 123450,
+        netAmount: 776600,
+      });
+      expect(byId['BK-P2']).toEqual({ collectedBy: 'CHANNEL', collectionSource: 'OPERATOR_CONFIG', providerStatusRaw: 'weird-word' });
+      expect(byId['BK-P3']).toEqual({ collectedBy: 'CHANNEL', collectionSource: 'OPERATOR_CONFIG' });
+    });
+
     it('pulls and normalises reservations across pages', async () => {
       fake.bookings = [sampleBooking({ id: 'BK-1', updated_at: '2027-01-01T10:00:00.000Z' }), sampleBooking({ id: 'BK-2', updated_at: '2027-01-01T11:00:00.000Z' }), sampleBooking({ id: 'BK-3', updated_at: '2027-01-01T12:00:00.000Z' })];
       const pull = await adapter().pullReservations(new Date('2027-01-01T00:00:00Z'));
       expect(pull.events.map((e) => e.externalReservationId)).toEqual(['BK-1', 'BK-2', 'BK-3']);
       expect(pull.newestUpdatedAt).toBe('2027-01-01T12:00:00.000Z');
       const e = pull.events[0];
-      expect(e).toMatchObject({ kind: 'RESERVATION_CREATED', channel: 'ACME_STAY', externalScope: '11111111-1111-1111-1111-111111111111', externalListingId: 'P-1', checkIn: '2027-03-10', checkOut: '2027-03-13', adults: 2, currency: 'INR', paymentCollectedByChannel: true });
+      expect(e).toMatchObject({ kind: 'RESERVATION_CREATED', channel: 'ACME_STAY', externalScope: '11111111-1111-1111-1111-111111111111', externalListingId: 'P-1', checkIn: '2027-03-10', checkOut: '2027-03-13', adults: 2, currency: 'INR' });
+      // The example definition DECLARES that the channel collects; the fake provider reports nothing about money, so nothing else is claimed.
+      expect(e.payment).toEqual({ collectedBy: 'CHANNEL', collectionSource: 'OPERATOR_CONFIG' });
       expect(e.guest).toMatchObject({ firstName: 'Asha', lastName: 'Verma', email: 'asha@example.com' });
       // 9000.50 major = 900050 minor over 3 nights: the remainder lands on the first night and the sum is exact
       expect(e.rooms[0].nightlyRates).toEqual([300017, 300017, 300016]);

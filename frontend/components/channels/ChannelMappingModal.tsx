@@ -168,7 +168,7 @@ function MappingForm({
           </div>
 
           <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Rate plan mapping & markup</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Rate plan mapping & markup</h4>
             {rows.length === 0 ? (
               <p className="text-xs text-slate-500">This channel room exposes no rate plans. Availability will still be synchronized.</p>
             ) : (

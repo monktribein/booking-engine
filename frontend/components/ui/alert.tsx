@@ -41,7 +41,7 @@ export function Alert({
     success: {
       bg: 'bg-emerald-50 border-emerald-200',
       text: 'text-emerald-800',
-      icon: <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />,
+      icon: <CheckCircle className="h-5 w-5 text-emerald-700 shrink-0" />,
     },
   };
 

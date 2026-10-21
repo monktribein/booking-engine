@@ -92,6 +92,8 @@ describe('iCal: importing availability calendars and publishing Tirvona ones', (
       const rows = await reservations();
       expect(rows.map((r) => [ymd(r.checkIn), ymd(r.checkOut)])).toEqual([[day(10), day(12)], [day(20), day(23)]]);
       expect(rows.every((r) => r.status === 'CONFIRMED' && Number(r.total) === 0)).toBe(true);
+      // A calendar block says nothing about money: never paid, never collected by a channel.
+      expect(rows.every((r) => r.paymentStatus === 'UNKNOWN' && r.collectionModel === null && r.collectionSource === null && r.providerPaymentStatus === null)).toBe(true);
       const inv = await inventoryFor(t, owner.token, s, day(10), day(12));
       expect(inv.map((r: { available: number }) => r.available)).toEqual([1, 1]); // 2 rooms, 1 taken per night
       const cn = await conn();

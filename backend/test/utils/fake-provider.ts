@@ -8,6 +8,8 @@ import type { AddressInfo } from 'node:net';
  * webhooks are enforced by the server, and every request is recorded. It is not an integration with any real company.
  */
 export interface FakeBooking {
+  /** Optional payment data the fake provider reports; absent = the provider says nothing about money. */
+  payment?: { status?: string; payout_state?: string; payout_date?: string; fee?: number; net?: number };
   id: string;
   status: 'confirmed' | 'modified' | 'cancelled' | string;
   property_id: string;

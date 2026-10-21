@@ -119,7 +119,6 @@ async function main() {
       checkOut: day(19),
       adults: 2,
       rooms: [{ roomTypeId: s.roomTypes.standard, quantity: 1, nightlyRates: [250000] }],
-      paymentCollectedByChannel: true,
     };
     const stdBefore = (await inv(s.roomTypes.standard, day(18)))!;
     const dups = await Promise.all(Array.from({ length: 6 }, () => svc.reservations.createReservation(dupInput)));
@@ -208,7 +207,6 @@ async function main() {
       checkOut: n3,
       adults: 2,
       rooms: [{ roomTypeId: fam, quantity: 1, nightlyRates: [650000] }],
-      paymentCollectedByChannel: true,
     });
     const famN2 = (await inv(fam, n2))!;
     check(ob.reservation.overbooked && famN2.available === 0 && famN2.overbooked === 1, 'overbooking: OTA booking on 0 availability → overbooked=1, available stays 0');

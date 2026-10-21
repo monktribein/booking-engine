@@ -12,12 +12,20 @@ import { NoPropertyState, QueryState } from '@/components/ui/query-state';
 import { useProperty } from '@/lib/auth/property-context';
 import { errorMessage } from '@/lib/utils/errors';
 import { formatDate } from '@/lib/utils/dates';
-import { getChannelBadge, getChannelConnectionBadge } from '@/lib/utils/formatters';
+import { getChannelBadge, getChannelHealth } from '@/lib/utils/formatters';
 import { RefreshCw, ArrowRight, AlertTriangle, FileText, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import { channelsApi } from '@/lib/api/channels';
 import { IcalExportPanel } from '@/components/channels/IcalExportPanel';
 
 const INITIAL_CHANNEL_LIMIT = 6;
+
+const HEALTH_TONES = {
+  green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 border-amber-200',
+  red: 'bg-rose-50 text-rose-700 border-rose-200',
+  blue: 'bg-blue-50 text-blue-700 border-blue-200',
+  slate: 'bg-slate-100 text-slate-600 border-slate-200',
+} as const;
 
 export default function ChannelManagerPage() {
   const { activeProperty, error: propertyError, reloadProperties, isLoading: propertyLoading } = useProperty();
@@ -74,10 +82,9 @@ export default function ChannelManagerPage() {
                 <AnimatePresence mode="popLayout">
                   {displayed.map((channel, index) => {
                     const badge = getChannelBadge(channel.channel);
-                    const connBadge = getChannelConnectionBadge(channel.status);
+                    const health = getChannelHealth(channel);
                     const isConnected = channel.status === ChannelConnectionStatus.CONNECTED;
                     const slug = channel.channel.toLowerCase().replace(/_/g, '-');
-                    const unavailable = !channel.internal && !channel.available;
 
                     return (
                       <motion.div
@@ -106,25 +113,14 @@ export default function ChannelManagerPage() {
                                     <CardTitle className="text-sm font-bold truncate text-slate-900 dark:text-slate-100">
                                       {channel.name}
                                     </CardTitle>
-                                    <CardDescription className="capitalize text-[11px] text-slate-400">
+                                    <CardDescription className="capitalize text-[11px] text-slate-500">
                                       {channel.internal ? 'Built-in channel' : `${channel.kind.toLowerCase()} integration`}
                                     </CardDescription>
                                   </div>
                                 </div>
-                                {channel.internal ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200/70 shrink-0">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Always on
-                                  </span>
-                                ) : unavailable ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-700 border-amber-200/70 shrink-0">
-                                    Partner access needed
-                                  </span>
-                                ) : (
-                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${connBadge.bg} shrink-0`}>
-                                    <span className={`h-1.5 w-1.5 rounded-full ${connBadge.dot}`} />
-                                    {connBadge.label}
-                                  </span>
-                                )}
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${HEALTH_TONES[health.tone]}`}>
+                                  {health.label}
+                                </span>
                               </div>
                             </CardHeader>
 
@@ -133,7 +129,7 @@ export default function ChannelManagerPage() {
                                 <div className="space-y-1.5 p-2.5 rounded-xl bg-stone-50/70 dark:bg-slate-800/40 border border-stone-100 dark:border-slate-800 text-[11px]">
                                   <div className="flex items-center justify-between text-slate-500">
                                     <span>Sync Status:</span>
-                                    <span className="font-bold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+                                    <span className="font-bold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
                                       <CheckCircle2 className="h-3 w-3" /> Realtime Active
                                     </span>
                                   </div>
@@ -191,7 +187,7 @@ export default function ChannelManagerPage() {
                                 </Button>
                               </Link>
                             ) : (
-                              <div className="text-[10px] text-slate-400 font-medium ml-auto flex items-center gap-1">
+                              <div className="text-[10px] text-slate-500 font-medium ml-auto flex items-center gap-1">
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Integrated
                               </div>
                             )}

@@ -2,12 +2,13 @@
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { addDays, format } from 'date-fns';
+import { addDays, format, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { EmptyState, NoPropertyState, QueryState } from '@/components/ui/query-state';
 import { useProperty } from '@/lib/auth/property-context';
 import { reportsApi } from '@/lib/api/reports';
 import { formatCurrency } from '@/lib/utils/currency';
+import { todayInTimeZone } from '@/lib/utils/dates';
 import { getChannelBadge } from '@/lib/utils/formatters';
 import { TrendingUp, PieChart } from 'lucide-react';
 
@@ -20,8 +21,8 @@ export default function ReportsPage() {
   const currency = activeProperty?.currency ?? 'INR';
   const [period, setPeriod] = useState<Period>('30d');
 
-  // Trailing window: stays arriving in [today - N, today + 1)
-  const today = new Date();
+  // Trailing window: stays arriving in [today - N, today + 1), where today is the property's own calendar day.
+  const today = parseISO(todayInTimeZone(activeProperty?.timezone));
   const from = format(addDays(today, -PERIODS[period]), 'yyyy-MM-dd');
   const to = format(addDays(today, 1), 'yyyy-MM-dd');
 
@@ -54,7 +55,7 @@ export default function ReportsPage() {
               role="tab"
               aria-selected={period === p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1 rounded-lg uppercase transition-all cursor-pointer ${period === p ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 font-bold border border-stone-200/60' : 'text-slate-500 hover:text-slate-800'}`}
+              className={`px-3 py-1 rounded-lg uppercase transition-all cursor-pointer ${period === p ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 font-bold border border-stone-200/60' : 'text-slate-600 hover:text-slate-800'}`}
             >
               {p}
             </button>
@@ -69,31 +70,31 @@ export default function ReportsPage() {
               <Card className="p-4 rounded-3xl border border-stone-200/90 bg-white dark:bg-slate-900">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Room Revenue</span>
                 <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{formatCurrency(r.totalRevenue, r.currency ?? currency)}</div>
-                <span className="text-[11px] text-slate-400">Net of discounts, excluding tax</span>
+                <span className="text-[11px] text-slate-500">Net of discounts, excluding tax</span>
               </Card>
               <Card className="p-4 rounded-3xl border border-stone-200/90 bg-white dark:bg-slate-900">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ADR</span>
                 <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{formatCurrency(r.adr, r.currency ?? currency)}</div>
-                <span className="text-[11px] text-slate-400">Per sold room night</span>
+                <span className="text-[11px] text-slate-500">Per sold room night</span>
               </Card>
               <Card className="p-4 rounded-3xl border border-stone-200/90 bg-white dark:bg-slate-900">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">RevPAR</span>
                 <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{formatCurrency(r.revPar, r.currency ?? currency)}</div>
-                <span className="text-[11px] text-slate-400">Per available room night</span>
+                <span className="text-[11px] text-slate-500">Per available room night</span>
               </Card>
               <Card className="p-4 rounded-3xl border border-stone-200/90 bg-white dark:bg-slate-900">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Average Occupancy</span>
                 <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
                   {occupancy.data && occupancy.data.length > 0 ? `${(occupancy.data.reduce((a, d) => a + d.occupancyPercent, 0) / occupancy.data.length).toFixed(1)}%` : occupancy.isError ? 'n/a' : '…'}
                 </div>
-                <span className="text-[11px] text-slate-400">Mean of nightly occupancy</span>
+                <span className="text-[11px] text-slate-500">Mean of nightly occupancy</span>
               </Card>
             </div>
 
             <Card className="rounded-3xl border border-stone-200/90 overflow-hidden bg-white dark:bg-slate-900">
               <CardHeader className="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <PieChart className="h-4 w-4 text-emerald-600" /> Channel Performance Share
+                  <PieChart className="h-4 w-4 text-emerald-700" /> Channel Performance Share
                 </CardTitle>
                 <CardDescription>Revenue contribution by booking source</CardDescription>
               </CardHeader>
@@ -115,11 +116,11 @@ export default function ReportsPage() {
                             <div className="flex items-center gap-2">
                               <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: b.iconColor }} />
                               <span className="font-semibold text-slate-800 dark:text-slate-200">{b.label}</span>
-                              <span className="text-slate-400">{s.bookings} booking{s.bookings === 1 ? '' : 's'}</span>
+                              <span className="text-slate-500">{s.bookings} booking{s.bookings === 1 ? '' : 's'}</span>
                             </div>
                             <div className="text-right">
                               <span className="font-bold text-slate-900 dark:text-slate-100">{formatCurrency(s.revenue, r.currency ?? currency)}</span>
-                              <span className="text-[10px] text-slate-400 ml-2">({s.percentage}%)</span>
+                              <span className="text-[10px] text-slate-500 ml-2">({s.percentage}%)</span>
                             </div>
                           </div>
                         );

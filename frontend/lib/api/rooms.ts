@@ -3,9 +3,31 @@ import { mapRoom } from './mappers';
 import { PhysicalRoom, RoomStatus, RoomType } from '@/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+export interface RetirementCheck {
+  canRetire: boolean;
+  alreadyRetired: boolean;
+  occupied: boolean;
+  upcomingReservations: { reservationId: string; reservationCode: string; status: string; checkIn: string; checkOut: string }[];
+  activeBlocks: number;
+}
+
 export const roomsApi = {
-  async listByRoomType(roomTypeId: string): Promise<PhysicalRoom[]> {
-    return (await apiClient<any[]>(`/room-types/${roomTypeId}/rooms`)).map(mapRoom);
+  /** Retired rooms are returned only when asked for, so no picker can offer one by accident. */
+  async listByRoomType(roomTypeId: string, includeRetired = false): Promise<PhysicalRoom[]> {
+    return (await apiClient<any[]>(`/room-types/${roomTypeId}/rooms`, { params: includeRetired ? { includeRetired: 'true' } : {} })).map(mapRoom);
+  },
+
+  /** Why a room cannot be retired right now (upcoming reservations, a guest in the room). Read-only. */
+  retirementCheck(id: string): Promise<RetirementCheck> {
+    return apiClient<RetirementCheck>(`/rooms/${id}/retirement-check`);
+  },
+
+  async retire(id: string, reason: string): Promise<PhysicalRoom> {
+    return mapRoom(await apiClient<any>(`/rooms/${id}/retire`, { method: 'POST', body: JSON.stringify({ reason }) }));
+  },
+
+  async reinstate(id: string): Promise<PhysicalRoom> {
+    return mapRoom(await apiClient<any>(`/rooms/${id}/reinstate`, { method: 'POST', body: JSON.stringify({}) }));
   },
 
   /**

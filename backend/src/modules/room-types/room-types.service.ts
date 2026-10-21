@@ -4,7 +4,7 @@ import { slugify } from '../../common/utils';
 import { addDays, todayIn } from '../../database/common/dates';
 import type { RoomType } from '../../database/db-types';
 import { ACTIVE_RESERVATION_STATUSES, CancellationPenaltyType, MealPlan, RatePlanType, RoomTypeStatus, SyncJobType } from '../../database/enums';
-import { ConflictError, NotFoundError } from '../../database/errors';
+import { ConflictError, DomainValidationError, NotFoundError } from '../../database/errors';
 import { Db, InjectDb, isUniqueViolation, j, runInTransaction } from '../../database/kysely';
 import { d, setFrom } from '../../database/sql';
 import { InventoryService } from '../../database/services/inventory.service';
@@ -42,6 +42,7 @@ export class RoomTypesService {
     const property = await this.db.selectFrom('properties').select(['currency', 'timezone', 'bookingHorizonDays']).where('id', '=', propertyId).executeTakeFirst();
     if (!property) throw new NotFoundError('Property', propertyId);
     const { createDefaultRatePlan = true } = dto;
+    if (dto.baseOccupancy != null && dto.baseOccupancy > dto.maxOccupancy) throw new DomainValidationError('baseOccupancy cannot exceed maxOccupancy');
     let rt: RoomType;
     try {
       rt = await runInTransaction(this.db, async (tx) => {
@@ -54,6 +55,9 @@ export class RoomTypesService {
             description: dto.description ?? null,
             maxOccupancy: dto.maxOccupancy,
             basePrice: dto.basePrice,
+            baseOccupancy: dto.baseOccupancy ?? null,
+            ...(dto.extraAdultCharge !== undefined ? { extraAdultCharge: dto.extraAdultCharge } : {}),
+            ...(dto.extraChildCharge !== undefined ? { extraChildCharge: dto.extraChildCharge } : {}),
             currency: property.currency,
             totalRooms: 0,
             amenities: dto.amenities?.map((a) => a.trim()).filter(Boolean) ?? [],
@@ -93,6 +97,9 @@ export class RoomTypesService {
   async update(user: AuthUser, meta: RequestMeta, id: string, dto: UpdateRoomTypeDto): Promise<RoomType> {
     const before = await this.get(id);
     if (before.status === RoomTypeStatus.ARCHIVED) throw new ConflictError('INVALID_STATE_TRANSITION', 'Archived room types cannot be edited');
+    const baseOcc = dto.baseOccupancy === undefined ? before.baseOccupancy : dto.baseOccupancy;
+    const maxOcc = dto.maxOccupancy ?? before.maxOccupancy;
+    if (baseOcc !== null && baseOcc > maxOcc) throw new DomainValidationError('baseOccupancy cannot exceed maxOccupancy');
     const set = setFrom({ ...dto, images: normalizeImages(dto.images) }, { json: ['images'] });
     let after = before;
     try {

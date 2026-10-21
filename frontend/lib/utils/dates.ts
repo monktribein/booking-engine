@@ -46,3 +46,15 @@ export function getDatesBetween(startDate: Date, endDate: Date): Date[] {
   }
   return dates;
 }
+
+/**
+ * Today's calendar date (YYYY-MM-DD) in an IANA time zone. Hotel dates are the property's local calendar days, so "today" must
+ * come from the property's zone, not the browser's. An unknown zone falls back to the browser's own day.
+ */
+export function todayInTimeZone(timeZone: string | undefined, now: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  } catch {
+    return format(now, 'yyyy-MM-dd');
+  }
+}

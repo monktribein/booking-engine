@@ -91,7 +91,7 @@ export default function GuestsPage() {
         </div>
         <div className="flex items-center gap-2.5">
           <div className="relative w-64 sm:w-80">
-            <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
+            <Search className="h-4 w-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
             <Input
               aria-label="Search guests"
               placeholder="Search by name, phone, email..."
@@ -165,11 +165,11 @@ export default function GuestsPage() {
         {selectedGuest && (
           <div className="space-y-6">
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Contact Information</h4>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Contact Information</h4>
               <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-400" /><span>{selectedGuest.phone || 'No phone recorded'}</span></div>
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Mail className="h-4 w-4 text-slate-400" /><span>{selectedGuest.email || 'No email recorded'}</span></div>
-                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Shield className="h-4 w-4 text-slate-400" /><span>ID documents are stored encrypted; only the last 4 characters are shown.</span></div>
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Phone className="h-4 w-4 text-slate-500" /><span>{selectedGuest.phone || 'No phone recorded'}</span></div>
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Mail className="h-4 w-4 text-slate-500" /><span>{selectedGuest.email || 'No email recorded'}</span></div>
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300"><Shield className="h-4 w-4 text-slate-500" /><span>ID documents are stored encrypted; only the last 4 characters are shown.</span></div>
               </div>
               {selectedGuest.notes && <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 italic">Note: &quot;{selectedGuest.notes}&quot;</div>}
             </div>
@@ -179,11 +179,11 @@ export default function GuestsPage() {
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700">
-                      <span className="text-xs text-slate-400 block">Booked value (non-cancelled)</span>
+                      <span className="text-xs text-slate-500 block">Booked value (non-cancelled)</span>
                       <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{formatCurrency(bookedValue, stays.data?.[0]?.currency ?? 'INR')}</span>
                     </div>
                     <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700">
-                      <span className="text-xs text-slate-400 block">Stays on record</span>
+                      <span className="text-xs text-slate-500 block">Stays on record</span>
                       <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{stays.data?.length ?? 0}</span>
                     </div>
                   </div>
@@ -221,9 +221,9 @@ export default function GuestsPage() {
 function StayList({ title, stays }: { title: string; stays: { _id: string; code: string; status: ReservationStatus; checkIn: string; checkOut: string; total: number; currency: string; rooms: { roomTypeName?: string }[] }[] }) {
   return (
     <div className="space-y-3">
-      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">{title}</h4>
+      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">{title}</h4>
       {stays.length === 0 ? (
-        <p className="text-xs text-slate-400 italic">None.</p>
+        <p className="text-xs text-slate-500 italic">None.</p>
       ) : (
         <div className="space-y-2">
           {stays.map((stay) => {
@@ -232,7 +232,7 @@ function StayList({ title, stays }: { title: string; stays: { _id: string; code:
               <div key={stay._id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between">
                 <div>
                   <div className="font-bold text-xs">{stay.code} - {stay.rooms[0]?.roomTypeName}</div>
-                  <div className="text-[10px] text-slate-400">{formatDateShort(stay.checkIn)} - {formatDateShort(stay.checkOut)} • {formatCurrency(stay.total, stay.currency)}</div>
+                  <div className="text-[10px] text-slate-500">{formatDateShort(stay.checkIn)} - {formatDateShort(stay.checkOut)} • {formatCurrency(stay.total, stay.currency)}</div>
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${b.bg} ${b.text} ${b.border}`}>{b.label}</span>
               </div>

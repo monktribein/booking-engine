@@ -35,6 +35,10 @@ export class ChangeRoomStatusDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(0, 2000) notes?: string;
 }
 
+export class RetireRoomDto {
+  @ApiProperty({ example: 'Merged with room 105 during renovation' }) @IsString() @Length(3, 500) reason!: string;
+}
+
 export class RoomDto {
   @ApiProperty() _id!: string;
   @ApiProperty() propertyId!: string;
@@ -43,5 +47,7 @@ export class RoomDto {
   @ApiPropertyOptional() floor?: string;
   @ApiProperty({ enum: RoomStatus }) status!: RoomStatus;
   @ApiPropertyOptional() notes?: string;
+  @ApiPropertyOptional({ nullable: true, description: 'Set when the room is RETIRED' }) retiredAt?: string | null;
+  @ApiPropertyOptional({ nullable: true }) retiredReason?: string | null;
   @ApiProperty() createdAt!: string;
 }

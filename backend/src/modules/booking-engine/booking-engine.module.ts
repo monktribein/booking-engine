@@ -78,6 +78,11 @@ export class PublicReservationDto {
   @ApiProperty({ type: PublicGuestDto }) @ValidateNested() @Type(() => PublicGuestDto) guest!: PublicGuestDto;
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(0, 1000) specialRequests?: string;
   @ApiPropertyOptional() @IsOptional() @Matches(/^[A-Za-z0-9_-]{3,30}$/) promoCode?: string;
+  @ApiPropertyOptional({ example: 735000, description: 'The total (minor units, after any discount) the guest was shown. If the server now calculates a different total the booking is refused with PRICE_CHANGED and nothing is held.' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedTotal?: number;
   @ApiPropertyOptional({ enum: ['DIRECT', 'TIRVONA'], default: 'DIRECT', description: 'Property website or the Tirvona marketplace' })
   @IsOptional()
   @IsIn(['DIRECT', 'TIRVONA'])
@@ -235,7 +240,10 @@ export class BookingEngineService {
     return results.map((rt) => ({
       ...rt,
       ratePlans: rt.ratePlans.map((rp) => {
-        const discount = PricingService.discountFor(promo, [{ roomTypeId: rt.roomTypeId, total: rp.total }]);
+        const line = [{ roomTypeId: rt.roomTypeId, total: rp.total }];
+        const promoProblem = PricingService.minimumValueProblem(promo, line);
+        if (promoProblem) return { ...rp, discount: 0, promoProblem };
+        const discount = PricingService.discountFor(promo, line);
         return { ...rp, discount, total: rp.total - discount };
       }),
     }));
@@ -250,21 +258,6 @@ export class BookingEngineService {
       ratePlanId: toUuid(r.ratePlanId, 'ratePlanId'),
       quantity: r.quantity,
     }));
-
-    let discount = 0;
-    if (dto.promoCode) {
-      const promo = await this.pricing.resolvePromotion(p.id, dto.promoCode, checkIn, checkOut);
-      // Discount on the server-computed price, never on anything the client sends.
-      const planIds = [...new Set(rooms.map((r) => r.ratePlanId))];
-      const plans = await this.db.selectFrom('ratePlans').select(['id', 'basePrice']).where('id', 'in', planIds).where('propertyId', '=', p.id).execute();
-      const price = new Map(plans.map((x) => [x.id, x.basePrice]));
-      const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000);
-      const lines = rooms.map((r) => {
-        const sub = (price.get(r.ratePlanId) ?? 0) * nights * r.quantity;
-        return { roomTypeId: r.roomTypeId, total: sub + percentOf(sub, p.taxPercent) };
-      });
-      discount = PricingService.discountFor(promo, lines);
-    }
 
     const requirePayment = this.config.get('bookingEngine', { infer: true }).requirePayment;
     if (requirePayment && !this.payments.gateway(PaymentProvider.RAZORPAY).isConfigured()) {
@@ -286,7 +279,9 @@ export class BookingEngineService {
       adults: dto.adults,
       children: dto.children,
       rooms,
-      discount,
+      // Priced, limited and recorded inside the booking transaction; nothing the client sends decides the price.
+      promotionCode: dto.promoCode,
+      expectedTotal: dto.expectedTotal,
       specialRequests: dto.specialRequests,
       auditMetadata: { channel: ctx.channel ?? 'booking-engine', promoCode: dto.promoCode, ip: meta.ip, ...(ctx.apiKeyId ? { apiKeyId: ctx.apiKeyId } : {}) },
     });

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { createHash } from 'node:crypto';
+import type { ChannelPaymentInfo } from '../common/payment-info';
 import type { WebhookEvent } from '../db-types';
 import { ChannelCode, GLOBAL_EXTERNAL_SCOPE, ReservationSource, WebhookEventStatus, WebhookSource, channelToSource } from '../enums';
 import { DomainError } from '../errors';
@@ -33,7 +34,11 @@ export interface NormalizedReservationEvent {
   guest: { firstName: string; lastName: string; email?: string; phone?: string };
   rooms: { externalRoomId?: string | null; externalRatePlanId?: string; quantity: number; nightlyRates: number[] }[];
   currency: string;
-  paymentCollectedByChannel: boolean;
+  /**
+   * What the provider (or the operator's configuration) says about the money of this booking. Omit it when nothing is known: the
+   * booking is then stored as UNKNOWN. Never default it to "collected".
+   */
+  payment?: ChannelPaymentInfo;
   specialRequests?: string;
 }
 
@@ -165,6 +170,7 @@ export class WebhookService {
           nightlyRatesByLine: expandRates(e.rooms),
           specialRequests: e.specialRequests,
         }, scope);
+        await this.reservations.refreshChannelPaymentInfo(source, e.externalReservationId, scope, e.payment);
         return { action: 'MODIFIED', reservationId: r.id, propertyId: r.propertyId };
       }
     }
@@ -197,8 +203,9 @@ export class WebhookService {
       children: e.children,
       rooms,
       specialRequests: e.specialRequests,
-      paymentCollectedByChannel: e.paymentCollectedByChannel,
+      payment: e.payment,
     });
+    if (!res.created) await this.reservations.refreshChannelPaymentInfo(source, e.externalReservationId, scope, e.payment);
     return { action: res.created ? 'CREATED' : 'DUPLICATE', reservationId: res.reservation.id, propertyId };
   }
 

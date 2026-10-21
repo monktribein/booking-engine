@@ -64,7 +64,7 @@ export function PropertyInfoCards({
         className="rounded-2xl border border-stone-200/90 bg-white dark:bg-slate-900 p-5 sm:p-6"
       >
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">About This Stay</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">About This Stay</span>
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[10px] font-semibold border border-emerald-200/60">
             <ShieldCheck className="h-3 w-3" /> Braj Dham Ashram
           </span>
@@ -117,14 +117,14 @@ export function PropertyInfoCards({
                   className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 py-0.5"
                 >
                   <div className="h-4 w-4 rounded-full bg-emerald-50 border border-emerald-200/70 flex items-center justify-center shrink-0">
-                    <Check className="h-3 w-3 text-emerald-600" />
+                    <Check className="h-3 w-3 text-emerald-700" />
                   </div>
                   <span className="capitalize">{amenity.replace(/-/g, ' ')}</span>
                 </motion.div>
               ))}
             </div>
           </div>
-          <div className="pt-2.5 border-t border-stone-100 dark:border-slate-800 text-[11px] text-slate-400 font-medium">
+          <div className="pt-2.5 border-t border-stone-100 dark:border-slate-800 text-[11px] text-slate-500 font-medium">
             ✓ Pure vegetarian ashram kitchen & wifi
           </div>
         </motion.div>
@@ -176,7 +176,7 @@ export function PropertyInfoCards({
               </p>
             </div>
           </div>
-          <div className="pt-2.5 border-t border-stone-100 dark:border-slate-800 text-[11px] text-slate-400 font-medium">
+          <div className="pt-2.5 border-t border-stone-100 dark:border-slate-800 text-[11px] text-slate-500 font-medium">
             Peaceful environment & Parikrama hospitality
           </div>
         </motion.div>

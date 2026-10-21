@@ -10,17 +10,26 @@ import { PricingService } from './pricing.service';
 import {
   CreatePromotionDto,
   CreateRatePlanDto,
+  CreateRateRuleDto,
   PromotionDto,
+  RateCalendarDayDto,
+  RateCalendarQueryDto,
   RatePlanDto,
+  RateRuleDto,
   UpdatePromotionDto,
   UpdateRatePlanDto,
+  UpdateRateRuleDto,
 } from './rates.dto';
+import { RateRulesService } from './rate-rules.service';
 import { RatesService } from './rates.service';
 
 @ApiTags('Rates')
 @Controller()
 export class RatesController {
-  constructor(private readonly rates: RatesService) {}
+  constructor(
+    private readonly rates: RatesService,
+    private readonly rules: RateRulesService,
+  ) {}
 
   @Get('properties/:propertyId/rate-plans')
   @PropertyAccess(Permission.PROPERTY_VIEW, { in: 'param', key: 'propertyId', entity: 'property' })
@@ -57,6 +66,56 @@ export class RatesController {
   @ApiStandardErrors({ notFound: true })
   archive(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
     return this.rates.archiveRatePlan(user, meta, id);
+  }
+
+  @Get('properties/:propertyId/rate-rules')
+  @PropertyAccess(Permission.PROPERTY_VIEW, { in: 'param', key: 'propertyId', entity: 'property' })
+  @ApiOperation({ summary: 'List date-level / seasonal rate rules' })
+  @ApiQuery({ name: 'roomTypeId', required: false })
+  @ApiEnvelope(RateRuleDto, { isArray: true })
+  @ApiStandardErrors({ notFound: true })
+  listRules(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query('roomTypeId') roomTypeId?: string) {
+    return this.rules.list(propertyId, roomTypeId);
+  }
+
+  @Post('properties/:propertyId/rate-rules')
+  @PropertyAccess(Permission.RATES_MANAGE, { in: 'param', key: 'propertyId', entity: 'property' })
+  @ApiOperation({
+    summary: 'Create a rate rule: a fixed price or a percentage change for a date range, optionally on certain weekdays or one rate plan',
+    description:
+      'When several rules match a night: highest priority wins; then a rule for the rate plan over one for the whole room type; then a weekday rule over an every-day rule; then the shorter range; then the newest. Two active rules with the same priority and scope that overlap are refused (RATE_RULE_CONFLICT). Existing reservations keep the prices they were sold at. Changes are queued to connected channels.',
+  })
+  @ApiEnvelope(RateRuleDto, { status: 201 })
+  @ApiStandardErrors({ notFound: true, conflict: 'RATE_RULE_CONFLICT' })
+  createRule(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('propertyId', ParseUuidPipe) propertyId: string, @Body() dto: CreateRateRuleDto) {
+    return this.rules.create(user, meta, propertyId, dto);
+  }
+
+  @Patch('rate-rules/:id')
+  @PropertyAccess(Permission.RATES_MANAGE, { in: 'param', key: 'id', entity: 'rateRule' })
+  @ApiOperation({ summary: 'Update or (de)activate a rate rule' })
+  @ApiEnvelope(RateRuleDto)
+  @ApiStandardErrors({ notFound: true, conflict: 'RATE_RULE_CONFLICT' })
+  updateRule(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string, @Body() dto: UpdateRateRuleDto) {
+    return this.rules.update(user, meta, id, dto);
+  }
+
+  @Delete('rate-rules/:id')
+  @PropertyAccess(Permission.RATES_MANAGE, { in: 'param', key: 'id', entity: 'rateRule' })
+  @ApiOperation({ summary: 'Deactivate a rate rule (kept for history)' })
+  @ApiEnvelope(RateRuleDto)
+  @ApiStandardErrors({ notFound: true })
+  deactivateRule(@CurrentUser() user: AuthUser, @ReqMeta() meta: RequestMeta, @Param('id', ParseUuidPipe) id: string) {
+    return this.rules.deactivate(user, meta, id);
+  }
+
+  @Get('properties/:propertyId/rate-calendar')
+  @PropertyAccess(Permission.PROPERTY_VIEW, { in: 'param', key: 'propertyId', entity: 'property' })
+  @ApiOperation({ summary: 'Effective nightly price per date for a rate plan, and the rule that set it' })
+  @ApiEnvelope(RateCalendarDayDto, { isArray: true })
+  @ApiStandardErrors({ notFound: true })
+  rateCalendar(@Param('propertyId', ParseUuidPipe) propertyId: string, @Query() q: RateCalendarQueryDto) {
+    return this.rules.calendar(propertyId, q);
   }
 
   @Get('properties/:propertyId/promotions')
@@ -96,5 +155,5 @@ export class RatesController {
   }
 }
 
-@Module({ controllers: [RatesController], providers: [RatesService, PricingService], exports: [RatesService, PricingService] })
+@Module({ controllers: [RatesController], providers: [RatesService, RateRulesService, PricingService], exports: [RatesService, RateRulesService, PricingService] })
 export class RatesModule {}

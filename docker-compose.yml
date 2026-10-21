@@ -33,6 +33,9 @@ services:
     environment:
       API_INTERNAL_URL: http://api:3000
       ALLOW_INSECURE_API_URL: ${ALLOW_INSECURE_API_URL:-false}   # true ONLY for a local run over plain http
+      # Must equal BFF_SHARED_SECRET in backend/.env (32+ random chars). Runtime only, never a build arg. Without it every web
+      # login shares one rate limit. Export it in the shell (or a root .env) that runs `docker compose`.
+      BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:-}
     ports: ["3001:3000"]
     depends_on:
       api: { condition: service_healthy }

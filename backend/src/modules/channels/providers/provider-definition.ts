@@ -124,7 +124,29 @@ export interface ReservationMapping {
   /** How the price is given: one total for the stay, or one amount per night. */
   pricing: { mode: 'TOTAL' | 'NIGHTLY'; path: string; unit: 'MINOR' | 'MAJOR' };
   dateFormat: 'YYYY-MM-DD' | 'ISO_DATETIME';
-  paymentCollectedByChannel: boolean;
+  /**
+   * OPTIONAL operator declaration of who collects the guest's money for EVERY booking of this provider. Omit it when the provider's
+   * contract does not say: bookings are then stored as UNKNOWN. A declaration is shown as "declared by configuration", never as a
+   * fact reported by the provider.
+   */
+  paymentCollection?: 'CHANNEL' | 'PROPERTY';
+  /** LEGACY (definitions saved before payment visibility): true = CHANNEL, false = PROPERTY. Read as an operator declaration. */
+  paymentCollectedByChannel?: boolean;
+  /** OPTIONAL paths to payment data the provider reports PER BOOKING. A path that finds nothing leaves the field unreported. */
+  paymentFields?: PaymentFieldsMapping;
+}
+
+export interface PaymentFieldsMapping {
+  /** Provider's payment status word, stored verbatim. statusMap (provider word to a normalised status) gives its reading; a word that is not listed stays raw-only. */
+  statusPath?: string;
+  statusMap?: Record<string, 'UNPAID' | 'PAID' | 'PARTIALLY_PAID' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED'>;
+  payoutStatusPath?: string;
+  payoutStatusMap?: Record<string, 'PENDING' | 'COMPLETED' | 'FAILED'>;
+  payoutDatePath?: string;
+  commissionPath?: string;
+  netAmountPath?: string;
+  /** Unit of commission and net amount. Required when either path is set. */
+  amountUnit?: 'MINOR' | 'MAJOR';
 }
 
 export interface WebhookSpec {
@@ -527,7 +549,7 @@ export function checkJsonPath(v: unknown, path: string, err: Err) {
 
 function checkReservationMapping(v: unknown, path: string, err: Err) {
   if (!isPlainObject(v)) return err(path, 'must be an object');
-  onlyKeys(v, ['statusPath', 'statusMap', 'pricing', 'dateFormat', 'paymentCollectedByChannel'], path, err);
+  onlyKeys(v, ['statusPath', 'statusMap', 'pricing', 'dateFormat', 'paymentCollection', 'paymentCollectedByChannel', 'paymentFields'], path, err);
   checkJsonPath(v.statusPath, `${path}.statusPath`, err);
   const kinds = ['RESERVATION_CREATED', 'RESERVATION_MODIFIED', 'RESERVATION_CANCELLED'];
   if (!isPlainObject(v.statusMap) || Object.keys(v.statusMap).length === 0 || Object.keys(v.statusMap).length > 50 || Object.values(v.statusMap).some((x) => !kinds.includes(x as string))) err(`${path}.statusMap`, `must map provider statuses to ${kinds.join(' | ')}`);
@@ -539,7 +561,26 @@ function checkReservationMapping(v: unknown, path: string, err: Err) {
     if (v.pricing.unit !== 'MINOR' && v.pricing.unit !== 'MAJOR') err(`${path}.pricing.unit`, 'must be MINOR or MAJOR');
   }
   if (v.dateFormat !== 'YYYY-MM-DD' && v.dateFormat !== 'ISO_DATETIME') err(`${path}.dateFormat`, 'must be YYYY-MM-DD or ISO_DATETIME');
-  if (typeof v.paymentCollectedByChannel !== 'boolean') err(`${path}.paymentCollectedByChannel`, 'must be true or false (be explicit: it decides whether the guest still owes the property)');
+  if (v.paymentCollection !== undefined && v.paymentCollection !== 'CHANNEL' && v.paymentCollection !== 'PROPERTY') err(`${path}.paymentCollection`, 'must be CHANNEL or PROPERTY, or omitted when the provider does not say who collects');
+  if (v.paymentCollectedByChannel !== undefined && typeof v.paymentCollectedByChannel !== 'boolean') err(`${path}.paymentCollectedByChannel`, 'must be true or false (legacy; prefer paymentCollection, or omit when unknown)');
+  if (v.paymentCollection !== undefined && v.paymentCollectedByChannel !== undefined) err(`${path}.paymentCollectedByChannel`, 'cannot be combined with paymentCollection');
+  if (v.paymentFields !== undefined) checkPaymentFields(v.paymentFields, `${path}.paymentFields`, err);
+}
+
+function checkPaymentFields(v: unknown, path: string, err: Err) {
+  if (!isPlainObject(v)) return err(path, 'must be an object');
+  onlyKeys(v, ['statusPath', 'statusMap', 'payoutStatusPath', 'payoutStatusMap', 'payoutDatePath', 'commissionPath', 'netAmountPath', 'amountUnit'], path, err);
+  for (const k of ['statusPath', 'payoutStatusPath', 'payoutDatePath', 'commissionPath', 'netAmountPath']) if (v[k] !== undefined) checkJsonPath(v[k], `${path}.${k}`, err);
+  const map = (k: 'statusMap' | 'payoutStatusMap', allowed: string[]) => {
+    const m = v[k];
+    if (m === undefined) return;
+    if (!isPlainObject(m) || Object.keys(m).length === 0 || Object.keys(m).length > 50 || Object.values(m).some((x) => !allowed.includes(x as string))) err(`${path}.${k}`, `must map provider words to ${allowed.join(' | ')}`);
+  };
+  map('statusMap', ['UNPAID', 'PAID', 'PARTIALLY_PAID', 'REFUNDED', 'PARTIALLY_REFUNDED', 'FAILED']);
+  map('payoutStatusMap', ['PENDING', 'COMPLETED', 'FAILED']);
+  if (v.statusMap !== undefined && v.statusPath === undefined) err(`${path}.statusMap`, 'needs statusPath');
+  if (v.payoutStatusMap !== undefined && v.payoutStatusPath === undefined) err(`${path}.payoutStatusMap`, 'needs payoutStatusPath');
+  if ((v.commissionPath !== undefined || v.netAmountPath !== undefined) && v.amountUnit !== 'MINOR' && v.amountUnit !== 'MAJOR') err(`${path}.amountUnit`, 'must be MINOR or MAJOR when commissionPath or netAmountPath is set');
 }
 
 function checkWebhook(v: unknown, path: string, err: Err) {

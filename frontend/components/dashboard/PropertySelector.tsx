@@ -24,14 +24,14 @@ export function PropertySelector() {
           </span>
           <span className="text-[10px] text-slate-500">{activeProperty ? `${activeProperty.city}, ${activeProperty.state}` : ''}</span>
         </div>
-        <ChevronDown className="h-3.5 w-3.5 text-slate-400 ml-1" />
+        <ChevronDown className="h-3.5 w-3.5 text-slate-500 ml-1" />
       </button>
 
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute left-0 mt-2 z-50 w-64 rounded-2xl border border-stone-200 bg-white p-2 animate-in fade-in duration-150">
-            <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Active Properties
             </div>
             {properties.map((p) => {

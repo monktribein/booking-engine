@@ -12,10 +12,11 @@ import { EmptyState, NoPropertyState, QueryState } from '@/components/ui/query-s
 import { apiClient } from '@/lib/api/client';
 import { propertiesApi } from '@/lib/api/properties';
 import { errorMessage } from '@/lib/utils/errors';
-import { Building2, Users, Trash2, KeyRound, Globe2, Briefcase } from 'lucide-react';
+import { Building2, Users, Trash2, KeyRound, Globe2, Briefcase, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth/auth-context';
 import { DeveloperSection } from '@/components/settings/developer-section';
 import { OrganizationSection } from '@/components/settings/organization-section';
+import { RetentionSection } from '@/components/settings/retention-section';
 import { VisibilitySection } from '@/components/settings/visibility-section';
 import type { Property } from '@/types';
 
@@ -36,7 +37,7 @@ export default function SettingsPage() {
   const { user } = useAuth();
   // API keys and webhooks are organization-wide credentials: only owners manage them (the API enforces this too).
   const isOwner = user?.role === 'PROPERTY_OWNER';
-  type Section = 'property' | 'visibility' | 'users' | 'organization' | 'developers';
+  type Section = 'property' | 'visibility' | 'users' | 'organization' | 'developers' | 'privacy';
   // Links such as /dashboard/settings?tab=visibility open that tab. This page only renders after the session is verified in the
   // browser, so reading the address here cannot differ from a server render.
   const [section, setSection] = useState<Section>(() => {
@@ -89,7 +90,7 @@ export default function SettingsPage() {
             ['property', 'Property Details', Building2],
             ['visibility', 'Visibility & Marketplace', Globe2],
             ['users', 'Users & Staff', Users],
-            ...(isOwner ? [['organization', 'Organization', Briefcase] as const, ['developers', 'Developers', KeyRound] as const] : []),
+            ...(isOwner ? [['organization', 'Organization', Briefcase] as const, ['developers', 'Developers', KeyRound] as const, ['privacy', 'Data retention', ShieldCheck] as const] : []),
           ] as const).map(([id, label, Icon]) => (
             <button
               key={id}
@@ -99,7 +100,7 @@ export default function SettingsPage() {
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 section === id
                   ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-stone-200/60'
-                  : 'text-slate-500 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Icon className="h-4 w-4" aria-hidden="true" />
@@ -127,6 +128,7 @@ export default function SettingsPage() {
         {section === 'visibility' && <VisibilitySection propertyId={propertyId} canManage={isOwner} onNotice={setNotice} />}
 
         {section === 'organization' && isOwner && <OrganizationSection onNotice={setNotice} />}
+        {section === 'privacy' && isOwner && <RetentionSection onNotice={setNotice} />}
 
         {section === 'developers' && isOwner && <DeveloperSection />}
 
@@ -277,7 +279,7 @@ function PropertyDetailsForm({
         <CardContent className="p-5 sm:p-6 space-y-6">
           {/* Identity Section */}
           <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Property Details</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Property Details</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <Input label="Property Name *" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <Input label="City *" required value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
@@ -302,7 +304,7 @@ function PropertyDetailsForm({
 
           {/* Operational Policy Section */}
           <div className="pt-4 border-t border-stone-100 dark:border-slate-800 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Policies & Taxes</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Policies & Taxes</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
               <Input label="Check-in Time" type="time" value={form.checkInTime} onChange={(e) => setForm({ ...form, checkInTime: e.target.value })} />
               <Input label="Check-out Time" type="time" value={form.checkOutTime} onChange={(e) => setForm({ ...form, checkOutTime: e.target.value })} />

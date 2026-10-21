@@ -105,7 +105,7 @@ describe('every API call rejects with an ApiError when the backend fails (no fab
     ['channels.getSyncErrors', () => channelsApi.getSyncErrors()],
     ['reports.getRevenueReport', () => reportsApi.getRevenueReport('p', '2026-01-01', '2026-01-31')],
     ['reports.getOccupancyReport', () => reportsApi.getOccupancyReport('p', '2026-01-01', '2026-01-31')],
-    ['reports.getDashboardStats', () => reportsApi.getDashboardStats('p', 'INR')],
+    ['reports.getDashboardStats', () => reportsApi.getDashboardStats('p')],
     ['bookingEngine.getPublicProperty', () => bookingEngineApi.getPublicProperty('slug')],
     ['bookingEngine.searchAvailability', () => bookingEngineApi.searchAvailability('slug', { checkIn: '2026-01-01', checkOut: '2026-01-02', adults: 1 })],
     [

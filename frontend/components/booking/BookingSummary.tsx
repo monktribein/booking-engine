@@ -17,8 +17,9 @@ export function BookingSummaryCard({
   adults,
   childCount = 0,
   currency,
-  nightly,
   subtotal,
+  extraGuestCharges = 0,
+  promoProblem,
   discount,
   tax,
   total,
@@ -32,8 +33,10 @@ export function BookingSummaryCard({
   adults: number;
   childCount?: number;
   currency: string;
-  nightly: number;
+  /** Room charges including extra-guest charges, before tax and discount. */
   subtotal: number;
+  extraGuestCharges?: number;
+  promoProblem?: string;
   discount: number;
   tax: number;
   total: number;
@@ -54,7 +57,7 @@ export function BookingSummaryCard({
             <BedDouble className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" aria-hidden="true" />
             <div>
               <span className="font-bold text-slate-900 dark:text-slate-100">{roomTypeName}</span>
-              <span className="text-slate-400 block text-[11px]">{ratePlanName}</span>
+              <span className="text-slate-500 block text-[11px]">{ratePlanName}</span>
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -63,7 +66,7 @@ export function BookingSummaryCard({
               <span className="font-semibold text-slate-800 dark:text-slate-200">
                 {formatDateShort(checkIn)} - {formatDateShort(checkOut)}
               </span>
-              <span className="text-slate-400 block text-[11px]">{nights} {nights === 1 ? 'Night' : 'Nights'}</span>
+              <span className="text-slate-500 block text-[11px]">{nights} {nights === 1 ? 'Night' : 'Nights'}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -76,11 +79,22 @@ export function BookingSummaryCard({
 
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
           <div className="flex justify-between text-slate-600 dark:text-slate-400">
-            <span>{formatCurrency(nightly, currency)} × {nights} nights</span>
-            <span>{formatCurrency(subtotal, currency)}</span>
+            <span>Room · {nights} {nights === 1 ? 'night' : 'nights'}</span>
+            <span>{formatCurrency(subtotal - extraGuestCharges, currency)}</span>
           </div>
+          {extraGuestCharges > 0 && (
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+              <span>Extra guests</span>
+              <span>{formatCurrency(extraGuestCharges, currency)}</span>
+            </div>
+          )}
+          {promoProblem && (
+            <p role="status" className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-2 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+              {promoProblem}
+            </p>
+          )}
           {discount > 0 && (
-            <div className="flex justify-between text-emerald-600 font-semibold">
+            <div className="flex justify-between text-emerald-700 font-semibold">
               <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> Promotion</span>
               <span>-{formatCurrency(discount, currency)}</span>
             </div>
@@ -98,7 +112,7 @@ export function BookingSummaryCard({
         {holdNote && (
           <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 space-y-1 text-[11px] text-slate-500">
             <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-              <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+              <ShieldCheck className="h-4 w-4 text-emerald-700" aria-hidden="true" />
               Your room is held
             </div>
             <p>{holdNote}</p>

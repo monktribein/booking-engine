@@ -17,7 +17,7 @@ import { errorMessage } from '@/lib/utils/errors';
 import { getRoomStatusBadge } from '@/lib/utils/formatters';
 import { roomsApi } from '@/lib/api/rooms';
 import { roomTypesApi } from '@/lib/api/room-types';
-import { Plus, Edit, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Edit, Archive, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
 
 /** Statuses the backend lets staff set (OCCUPIED is driven by check-in / check-out). */
 const SETTABLE_STATUSES = [RoomStatus.AVAILABLE, RoomStatus.CLEANING, RoomStatus.MAINTENANCE, RoomStatus.BLOCKED];
@@ -41,7 +41,7 @@ export default function RoomsManagementPage() {
     queryKey: ['rooms', propertyId],
     queryFn: async () => {
       const roomTypes = await roomTypesApi.list(propertyId as string);
-      const rooms = (await Promise.all(roomTypes.map((rt) => roomsApi.listByRoomType(rt._id)))).flat();
+      const rooms = (await Promise.all(roomTypes.map((rt) => roomsApi.listByRoomType(rt._id, true)))).flat();
       return { roomTypes, rooms };
     },
     enabled: !!propertyId,
@@ -76,6 +76,10 @@ export default function RoomsManagementPage() {
   const [typePrice, setTypePrice] = useState(2500);
   const [typeOccupancy, setTypeOccupancy] = useState(2);
   const [typeAmenities, setTypeAmenities] = useState('Wi-Fi, Hot Water');
+  // Guest pricing: empty base occupancy = the nightly price covers everyone up to the maximum (no extra-guest charges).
+  const [typeBaseOcc, setTypeBaseOcc] = useState('');
+  const [typeExtraAdult, setTypeExtraAdult] = useState(0);
+  const [typeExtraChild, setTypeExtraChild] = useState(0);
   const typeMutation = useMutation({
     mutationFn: () => {
       const body = {
@@ -84,6 +88,9 @@ export default function RoomsManagementPage() {
         basePrice: Math.round(typePrice * 100),
         maxOccupancy: Number(typeOccupancy),
         amenities: typeAmenities.split(',').map((s) => s.trim()).filter(Boolean),
+        baseOccupancy: typeBaseOcc === '' ? null : Number(typeBaseOcc),
+        extraAdultCharge: Math.round(typeExtraAdult * 100),
+        extraChildCharge: Math.round(typeExtraChild * 100),
       };
       return editingType ? roomTypesApi.update(editingType._id, body) : roomTypesApi.create(propertyId as string, body);
     },
@@ -116,6 +123,40 @@ export default function RoomsManagementPage() {
     onError: (e) => setFormError(errorMessage(e)),
   });
 
+  // Retire / reinstate a physical room
+  const [retireTarget, setRetireTarget] = useState<PhysicalRoom | null>(null);
+  const [retireReason, setRetireReason] = useState('');
+  const retireCheck = useQuery({
+    queryKey: ['room-retirement-check', retireTarget?._id],
+    queryFn: () => roomsApi.retirementCheck(retireTarget!._id),
+    enabled: !!retireTarget,
+  });
+  const retireMutation = useMutation({
+    mutationFn: () => roomsApi.retire(retireTarget!._id, retireReason.trim()),
+    onSuccess: async () => {
+      setRetireTarget(null);
+      setStatusRoom(null);
+      setFormError(null);
+      await refresh();
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (e) => setFormError(errorMessage(e)),
+  });
+  const reinstateMutation = useMutation({
+    mutationFn: (id: string) => roomsApi.reinstate(id),
+    onSuccess: async () => {
+      setFormError(null);
+      await refresh();
+    },
+    onError: (e) => setFormError(errorMessage(e)),
+  });
+
+  const openRetire = (room: PhysicalRoom) => {
+    setFormError(null);
+    setRetireReason('');
+    setRetireTarget(room);
+  };
+
   const openStatus = (room: PhysicalRoom) => {
     setFormError(null);
     setStatusRoom(room);
@@ -132,6 +173,9 @@ export default function RoomsManagementPage() {
     setTypePrice(rt ? rt.basePrice / 100 : 2500);
     setTypeOccupancy(rt?.maxOccupancy ?? 2);
     setTypeAmenities(rt ? rt.amenities.join(', ') : 'Wi-Fi, Hot Water');
+    setTypeBaseOcc(rt?.baseOccupancy ? String(rt.baseOccupancy) : '');
+    setTypeExtraAdult((rt?.extraAdultCharge ?? 0) / 100);
+    setTypeExtraChild((rt?.extraChildCharge ?? 0) / 100);
     setTypeOpen(true);
   };
 
@@ -166,7 +210,7 @@ export default function RoomsManagementPage() {
         </div>
       </div>
 
-      {formError && !statusRoom && !typeOpen && !addOpen && <Alert variant="danger" message={formError} onClose={() => setFormError(null)} />}
+      {formError && !statusRoom && !typeOpen && !addOpen && !retireTarget && <Alert variant="danger" message={formError} onClose={() => setFormError(null)} />}
 
       <QueryState
         query={query}
@@ -174,14 +218,17 @@ export default function RoomsManagementPage() {
         isEmpty={(d) => d.roomTypes.length === 0}
         empty={<EmptyState title="No room types yet" hint="Create your first room type to start adding rooms." action={<Button size="sm" onClick={() => openType()}>New Room Type</Button>} />}
       >
-        {({ roomTypes, rooms }) => {
+        {({ roomTypes, rooms: allRooms }) => {
+          // Retired rooms are history: they leave every count and picker and are listed separately at the bottom.
+          const rooms = allRooms.filter((r) => r.status !== RoomStatus.RETIRED);
+          const retiredRooms = allRooms.filter((r) => r.status === RoomStatus.RETIRED);
           const filtered = activeTab === 'all' ? rooms : rooms.filter((r) => r.roomTypeId === activeTab);
           return (
             <>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Room Types</h2>
-                  <span className="text-xs text-slate-400">{roomTypes.length} configured</span>
+                  <span className="text-xs text-slate-500">{roomTypes.length} configured</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   {roomTypes.map((rt) => {
@@ -193,27 +240,33 @@ export default function RoomsManagementPage() {
                           <div className="flex items-start justify-between">
                             <div>
                               <CardTitle className="text-base font-bold">{rt.name}</CardTitle>
-                              <CardDescription>Max {rt.maxOccupancy} Guests Capacity</CardDescription>
+                              <CardDescription>
+                                Max {rt.maxOccupancy} guests
+                                {rt.baseOccupancy ? ` · price covers ${rt.baseOccupancy}` : ''}
+                                {rt.baseOccupancy && (rt.extraAdultCharge || rt.extraChildCharge)
+                                  ? ` · extra adult ${formatCurrency(rt.extraAdultCharge ?? 0, rt.currency)}, child ${formatCurrency(rt.extraChildCharge ?? 0, rt.currency)} / night`
+                                  : ''}
+                              </CardDescription>
                             </div>
                             <div className="text-right">
                               <div className="text-base font-extrabold text-slate-900 dark:text-slate-100">{formatCurrency(rt.basePrice, rt.currency)}</div>
-                              <span className="text-[10px] text-slate-400">base / night</span>
+                              <span className="text-[10px] text-slate-500">base / night</span>
                             </div>
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-4 pt-2">
                           <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs">
                             <div>
-                              <span className="text-slate-400 block text-[10px]">Total Inventory</span>
+                              <span className="text-slate-500 block text-[10px]">Total Inventory</span>
                               <span className="font-bold text-slate-800 dark:text-slate-200">{roomsOfType.length} Rooms</span>
                             </div>
                             <div className="text-right">
-                              <span className="text-slate-400 block text-[10px]">Ready & Available</span>
-                              <span className="font-bold text-emerald-600 dark:text-emerald-400">{availableCount} Available</span>
+                              <span className="text-slate-500 block text-[10px]">Ready & Available</span>
+                              <span className="font-bold text-emerald-700 dark:text-emerald-400">{availableCount} Available</span>
                             </div>
                           </div>
                           <div>
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1.5">Included Amenities</span>
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1.5">Included Amenities</span>
                             <div className="flex flex-wrap gap-1">
                               {rt.amenities.map((amenity, i) => (
                                 <span key={i} className="rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
@@ -338,6 +391,32 @@ export default function RoomsManagementPage() {
                   </>
                 )}
               </div>
+
+              {retiredRooms.length > 0 && (
+                <div className="space-y-3" aria-labelledby="retired-rooms-heading">
+                  <div>
+                    <h2 id="retired-rooms-heading" className="text-base font-bold text-slate-900 dark:text-slate-100">Retired rooms ({retiredRooms.length})</h2>
+                    <p className="text-xs text-slate-500">Kept for history and reports; not sellable and not offered for assignment.</p>
+                  </div>
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm">
+                    {retiredRooms.map((room) => (
+                      <li key={room._id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                        <div>
+                          <span className="font-bold">Room {room.roomNumber}</span>{' '}
+                          <span className="text-xs text-slate-500">{roomTypes.find((t) => t._id === room.roomTypeId)?.name}</span>
+                          <div className="text-[11px] text-slate-500">
+                            Retired {room.retiredAt ? room.retiredAt.slice(0, 10) : ''}
+                            {room.retiredReason ? ` · ${room.retiredReason}` : ''}
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm" disabled={reinstateMutation.isPending} onClick={() => reinstateMutation.mutate(room._id)} aria-label={`Reinstate room ${room.roomNumber}`}>
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reinstate
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           );
         }}
@@ -371,12 +450,54 @@ export default function RoomsManagementPage() {
           {(newStatus === RoomStatus.MAINTENANCE || newStatus === RoomStatus.BLOCKED) && (
             <Input label="Out of service until (optional)" type="date" value={blockUntil} onChange={(e) => setBlockUntil(e.target.value)} />
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <Button type="button" variant="ghost" className="text-rose-600" disabled={statusRoom?.status === RoomStatus.OCCUPIED} onClick={() => statusRoom && openRetire(statusRoom)}>
+              <Archive className="h-3.5 w-3.5 mr-1" /> Retire room…
+            </Button>
+            <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setStatusRoom(null)}>
               Cancel
             </Button>
             <Button type="submit" isLoading={statusMutation.isPending} disabled={statusMutation.isPending || statusRoom?.status === RoomStatus.OCCUPIED}>
               Save Room Status
+            </Button>
+            </div>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Retire room dialog */}
+      <Dialog
+        isOpen={!!retireTarget}
+        onClose={() => setRetireTarget(null)}
+        title={`Retire Room ${retireTarget?.roomNumber ?? ''}`}
+        description="The room leaves the sellable inventory for good. Its past reservations, reports and audit history are kept."
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!retireMutation.isPending && retireCheck.data?.canRetire) retireMutation.mutate();
+          }}
+          className="space-y-4"
+        >
+          {formError && <Alert variant="danger" message={formError} />}
+          {retireCheck.isLoading && <p className="text-xs text-slate-500">Checking upcoming reservations…</p>}
+          {retireCheck.isError && <Alert variant="danger" message={errorMessage(retireCheck.error)} />}
+          {retireCheck.data?.occupied && <Alert variant="info" message="A guest is in this room. Check them out first." />}
+          {!!retireCheck.data?.upcomingReservations.length && (
+            <Alert
+              variant="warning"
+              message={`This room is assigned to ${retireCheck.data.upcomingReservations.length} upcoming reservation(s): ${retireCheck.data.upcomingReservations.map((r) => `${r.reservationCode} (${r.checkIn} to ${r.checkOut})`).join(', ')}. Move them to another room from Reservations, then retire this room.`}
+            />
+          )}
+          {!!retireCheck.data?.activeBlocks && <p className="text-xs text-slate-500">Its current maintenance/block window will be released.</p>}
+          <Input label="Reason *" required minLength={3} maxLength={500} placeholder="e.g. Merged with room 105 during renovation" value={retireReason} onChange={(e) => setRetireReason(e.target.value)} />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setRetireTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="danger" isLoading={retireMutation.isPending} disabled={retireMutation.isPending || !retireCheck.data?.canRetire || retireReason.trim().length < 3}>
+              Retire Room
             </Button>
           </div>
         </form>
@@ -406,6 +527,15 @@ export default function RoomsManagementPage() {
             <Input label="Base Price (₹/Night) *" type="number" required min={1} value={typePrice} onChange={(e) => setTypePrice(Number(e.target.value))} />
             <Input label="Max Occupancy (Guests) *" type="number" required min={1} value={typeOccupancy} onChange={(e) => setTypeOccupancy(Number(e.target.value))} />
           </div>
+          <fieldset className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">
+            <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Guests and extra-guest charges (optional)</legend>
+            <p className="text-[11px] text-slate-500">Leave Guests included empty when the price covers up to the maximum. Otherwise each guest above it is charged per night.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input label="Guests included" type="number" min={1} max={typeOccupancy} value={typeBaseOcc} onChange={(e) => setTypeBaseOcc(e.target.value)} placeholder="all" />
+              <Input label="Extra adult (₹/night)" type="number" min={0} value={typeExtraAdult} onChange={(e) => setTypeExtraAdult(Number(e.target.value))} disabled={typeBaseOcc === ''} />
+              <Input label="Extra child (₹/night)" type="number" min={0} value={typeExtraChild} onChange={(e) => setTypeExtraChild(Number(e.target.value))} disabled={typeBaseOcc === ''} />
+            </div>
+          </fieldset>
           <Input label="Amenities (comma separated)" value={typeAmenities} onChange={(e) => setTypeAmenities(e.target.value)} />
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => setTypeOpen(false)}>

@@ -42,12 +42,12 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#FAF9F5] text-slate-900 font-sans antialiased selection:bg-[#c1d8f0] selection:text-slate-900">
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#FAF9F5] text-slate-900 font-sans antialiased selection:bg-[#c1d8f0] selection:text-slate-900">
       {/* Back to Home Link */}
       <div className="w-full max-w-md mb-4">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Tirvona
         </Link>
@@ -77,9 +77,9 @@ export default function RegisterPage() {
         {/* Register Card */}
         <div className="rounded-3xl border border-stone-200/90 bg-white p-7 sm:p-8 space-y-6">
           <div className="border-b border-stone-100 pb-4">
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">
               Register Property
-            </h2>
+            </h1>
             <p className="text-xs text-slate-500 mt-1">
               Owner and property setup
             </p>
@@ -188,6 +188,6 @@ export default function RegisterPage() {
           </Link>
         </div>
       </motion.div>
-    </div>
+    </main>
   );
 }

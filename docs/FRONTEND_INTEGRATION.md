@@ -58,7 +58,7 @@ All endpoints below were exercised by `frontend/tests/live/*` against the seeded
 | Register | `POST /auth/register` | pass (weak password -> 400 with `details.fields`); success path covered by unit test (see limitations) |
 | Forgot / reset password | `POST /auth/forgot-password`, `POST /auth/reset-password` | pass; reset page added (the e-mailed link target was missing) |
 | Session boot | `GET /auth/me`, `POST /auth/refresh` | pass |
-| Dashboard | `GET /properties/:id/reports/occupancy`, `GET /reservations` (x2), `GET /properties/:id/reports/revenue`, `GET /properties/:id/channels` | pass, composed |
+| Dashboard | `GET /properties/:id/reports/dashboard?date=` (one server-computed snapshot in the property's time zone), `GET /reservations`, `GET /properties/:id/channels` | pass (backend `test/dashboard.e2e-spec.ts`; browser `e2e/dashboard.spec.ts`) |
 | Reports | `GET /properties/:id/reports/revenue`, `.../occupancy` | pass |
 | Properties / settings | `GET /properties`, `GET/PATCH /properties/:id`, `GET/POST/DELETE /properties/:id/users` | pass (staff add/remove not exercised live) |
 | Settings → Developers (owners only): API keys and webhooks | `GET/POST /api-keys`, `DELETE /api-keys/:id`, `GET/POST /webhook-endpoints`, `PATCH/DELETE /webhook-endpoints/:id`, `POST /webhook-endpoints/:id/{rotate-secret,test}`, `GET /webhook-endpoints/:id/deliveries`, `POST …/deliveries/:id/redeliver` | unit (9 component tests), real browser (Playwright `e2e/developer.spec.ts`: create key → call `/v1` → revoke; endpoint → test event → signature verified → delete) |
@@ -81,7 +81,7 @@ All endpoints below were exercised by `frontend/tests/live/*` against the seeded
 
 | Missing | Handling | Smallest compatible backend change if wanted |
 | --- | --- | --- |
-| `GET /properties/:id/reports/dashboard` | composed from occupancy + reservations + revenue | optional summary endpoint |
+| `GET /properties/:id/reports/dashboard` | **added 2026-10-19**; replaces the client-side composition | none |
 | `GET /properties/:id/rooms` (all rooms) | composed from room types + `/room-types/:id/rooms` | optional list endpoint |
 | `GET /properties/:id/payments` | Payments page lists reservations with paid / balance and opens a reservation's payments | list endpoint with pagination |
 | Per-guest history and lifetime value | reservation search by first name, filtered to the guest id; "booked value" is computed from what was loaded | `GET /guests/:id/reservations` |

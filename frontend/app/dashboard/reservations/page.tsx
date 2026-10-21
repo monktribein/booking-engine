@@ -108,7 +108,7 @@ export default function ReservationsPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs">
         <div className="relative">
-          <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
+          <Search className="h-4 w-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" aria-hidden="true" />
           <Input
             aria-label="Search reservations"
             placeholder="Search code or guest name..."
@@ -191,7 +191,7 @@ export default function ReservationsPage() {
                             <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">
                               {res.guest.firstName} {res.guest.lastName}
                             </div>
-                            <div className="text-[10px] text-slate-400">{res.guest.phone || res.guest.email}</div>
+                            <div className="text-[10px] text-slate-500">{res.guest.phone || res.guest.email}</div>
                           </TableCell>
                           <TableCell>
                             <div className="text-xs font-medium text-slate-800 dark:text-slate-200">{primaryRoom?.roomTypeName ?? '-'}</div>

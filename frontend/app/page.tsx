@@ -99,7 +99,7 @@ export default function RootHomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF9F5] text-slate-900 font-sans selection:bg-[#c1d8f0] selection:text-slate-900 antialiased">
+    <div className="min-h-screen overflow-x-clip bg-[#FAF9F5] text-slate-900 font-sans selection:bg-[#c1d8f0] selection:text-slate-900 antialiased">
       {/* Top Navigation - Aligned with max-w-6xl container */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
@@ -164,7 +164,7 @@ export default function RootHomePage() {
                   type="button"
                   onClick={() => logout()}
                   title="Sign Out"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white hover:bg-stone-100 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white hover:bg-stone-100 text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   <span className="sr-only">Sign Out</span>
@@ -203,7 +203,7 @@ export default function RootHomePage() {
               variants={itemVariants}
               className="text-4xl sm:text-5xl md:text-[54px] lg:text-[60px] font-bold tracking-tight text-slate-900 leading-[1.18]"
             >
-              <span className="block whitespace-normal sm:whitespace-nowrap">Intelligent Hotel Management</span>
+              <span className="block whitespace-normal lg:whitespace-nowrap">Intelligent Hotel Management</span>
               <span className="block font-normal text-slate-700 mt-1 sm:mt-2">& Direct Bookings</span>
             </motion.h1>
 
@@ -240,16 +240,18 @@ export default function RootHomePage() {
           </motion.div>
 
           {/* Interactive Scroll-to-explore indicator at bottom of Hero fold */}
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
+          <motion.button
+            type="button"
+            aria-label="Scroll to explore"
+            initial={{ y: -6 }}
+            animate={{ y: 0 }}
             transition={{ delay: 0.8, duration: 0.6 }}
-            className="flex flex-col items-center gap-1.5 pt-6 pb-2 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer select-none"
+            className="mx-auto flex flex-col items-center gap-1.5 pt-6 pb-2 text-slate-600 hover:text-slate-800 transition-colors cursor-pointer select-none"
             onClick={() => {
               document.getElementById('pillars-section')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-700">
               Scroll to explore
             </span>
             <motion.div
@@ -258,7 +260,7 @@ export default function RootHomePage() {
             >
               <ChevronDown className="h-4 w-4 text-slate-500" />
             </motion.div>
-          </motion.div>
+          </motion.button>
         </section>
 
         {/* 3 Core Pillars Bento Grid - Only loads & reveals when scrolled into view */}
@@ -310,15 +312,15 @@ export default function RootHomePage() {
                 </div>
                 <div className="space-y-2.5 pt-1 text-xs text-slate-600">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Interactive day, week, and month tape chart</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Atomic inventory lock with zero double-selling</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Housekeeping turnover and room inspection tracking</span>
                   </div>
                 </div>
@@ -358,15 +360,15 @@ export default function RootHomePage() {
                 </div>
                 <div className="space-y-2.5 pt-1 text-xs text-slate-600">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>2-way partner sync with instant conflict prevention</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Automated room rate plan and restriction pushes</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Real-time OTA channel mapping engine</span>
                   </div>
                 </div>
@@ -406,15 +408,15 @@ export default function RootHomePage() {
                 </div>
                 <div className="space-y-2.5 pt-1 text-xs text-slate-600">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Server-rendered SEO with Schema.org hotel structured data</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Real-time availability, promo codes & dynamic discounts</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0" />
                     <span>Instant booking vouchers & guest self-service portal</span>
                   </div>
                 </div>
@@ -457,7 +459,7 @@ export default function RootHomePage() {
             )}
           </div>
 
-          <div className="text-slate-400">
+          <div className="text-slate-500">
             © {new Date().getFullYear()} Tirvona Inc. All rights reserved.
           </div>
         </div>
