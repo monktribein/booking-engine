@@ -62,6 +62,8 @@ export enum RoomStatus {
   CLEANING = 'CLEANING',
   MAINTENANCE = 'MAINTENANCE',
   BLOCKED = 'BLOCKED',
+  /** Permanently out of the inventory; history is kept. */
+  RETIRED = 'RETIRED',
 }
 
 export enum RatePlanType {
@@ -129,6 +131,8 @@ export enum ReservationPaymentStatus {
   CHANNEL_COLLECTED = 'CHANNEL_COLLECTED',
   PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED',
   REFUNDED = 'REFUNDED',
+  /** A channel booking whose payment the channel has not reported and nobody recorded here. Never read it as paid or unpaid. */
+  UNKNOWN = 'UNKNOWN',
 }
 
 export enum PaymentProvider {

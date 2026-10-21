@@ -91,7 +91,10 @@ class RatePlanQuoteDto {
   @ApiProperty() name!: string;
   @ApiProperty() mealPlan!: string;
   @ApiProperty({ type: Object }) cancellationPolicy!: Record<string, unknown>;
-  @ApiProperty() nightly!: number;
+  @ApiProperty({ description: 'Average nightly price per room including extra-guest charges' }) nightly!: number;
+  @ApiProperty({ type: [Object], description: 'Per-night price of the first room: { date, amount, rate, extra, ruleId? }. amount = rate + extra and is what is frozen on the booking.' }) nightlyRates!: Record<string, unknown>[];
+  @ApiProperty({ description: 'Extra-guest charges included in subtotal' }) extraGuestCharges!: number;
+  @ApiPropertyOptional({ description: 'Set instead of a discount when the promo code does not apply to this plan (for example below its minimum booking value)' }) promoProblem?: string;
   @ApiProperty() subtotal!: number;
   @ApiProperty() tax!: number;
   @ApiPropertyOptional() discount?: number;

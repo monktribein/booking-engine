@@ -127,6 +127,11 @@ export interface RoomType {
   basePrice: number; // in minor units (paise)
   currency: string;
   totalRooms: number;
+  /** Guests the nightly price covers per room; null/absent = the price covers maxOccupancy. */
+  baseOccupancy?: number | null;
+  /** Minor units per extra adult / child per night above baseOccupancy. */
+  extraAdultCharge?: number;
+  extraChildCharge?: number;
   amenities: string[];
   images?: PropertyImage[];
   status: RoomTypeStatus;
@@ -144,6 +149,8 @@ export interface PhysicalRoom {
   status: RoomStatus;
   currentReservationId?: string | null;
   cleaningNotes?: string;
+  retiredAt?: string | null;
+  retiredReason?: string | null;
   updatedAt?: string;
 }
 
@@ -177,6 +184,42 @@ export interface Promotion {
   validFrom: string;
   validTo: string;
   isActive: boolean;
+  /** Limits: absent = unlimited / no minimum. */
+  maxRedemptions?: number | null;
+  maxPerGuest?: number | null;
+  /** Minor units. */
+  minBookingValue?: number;
+  /** Active redemptions so far. */
+  redeemed?: number;
+}
+
+/** A date-level / seasonal price rule (GET /properties/:id/rate-rules). */
+export interface RateRule {
+  _id: string;
+  propertyId: string;
+  roomTypeId: string;
+  ratePlanId?: string | null;
+  name: string;
+  startDate: string;
+  /** Exclusive. */
+  endDate: string;
+  /** 0 = Sunday .. 6 = Saturday; null = every day. */
+  daysOfWeek?: number[] | null;
+  adjustment: 'FIXED' | 'PERCENT';
+  /** FIXED: nightly price in minor units. */
+  amount?: number | null;
+  /** PERCENT: added to the base price. */
+  percent?: number | null;
+  priority: number;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface RateCalendarDay {
+  date: string;
+  base: number;
+  rate: number;
+  ruleId?: string | null;
+  ruleName?: string | null;
 }
 
 // ---------------------------------------------------------------- Inventory & Calendar
@@ -272,6 +315,25 @@ export interface ReservationTimelineEvent {
   details?: string;
 }
 
+/** Read-only payment and payout information about a channel booking, with where it came from. */
+export interface ChannelPaymentVisibility {
+  /** CHANNEL: the channel charges the guest. PROPERTY: the guest pays the property. Absent: not known. */
+  collectionModel?: 'CHANNEL' | 'PROPERTY';
+  /** PROVIDER: the channel reported it. OPERATOR_CONFIG: declared in the provider configuration, not reported. */
+  collectionSource?: 'PROVIDER' | 'OPERATOR_CONFIG';
+  providerPaymentStatusRaw?: string;
+  providerPaymentStatus?: 'UNPAID' | 'PAID' | 'PARTIALLY_PAID' | 'REFUNDED' | 'PARTIALLY_REFUNDED' | 'FAILED';
+  payoutStatusRaw?: string;
+  payoutStatus?: 'PENDING' | 'COMPLETED' | 'FAILED';
+  /** ISO time. */
+  payoutDate?: string;
+  /** Minor units. */
+  commissionAmount?: number;
+  netAmount?: number;
+  /** ISO time the provider-reported fields were last refreshed. */
+  updatedAt?: string;
+}
+
 export interface Reservation {
   _id: string;
   propertyId: string;
@@ -293,6 +355,8 @@ export interface Reservation {
   channelReservationId?: string;
   amountPaid?: number;
   amountRefunded?: number;
+  /** What is known about the money of a CHANNEL booking. Every field is absent when it was not reported: absence means "unavailable". */
+  channelPayment?: ChannelPaymentVisibility;
   /** ISO time until which a PENDING booking holds its rooms. */
   holdExpiresAt?: string;
   /** Only present on the public lookup view. */
@@ -404,17 +468,26 @@ export interface SyncLog {
 }
 
 // ---------------------------------------------------------------- Reports & Stats
+/** GET /properties/:id/reports/dashboard: one server-computed snapshot of a calendar day in the property's time zone. */
 export interface DashboardStats {
-  /** Today's figures, composed client-side from the occupancy, reservation and revenue endpoints. */
+  date: string;
+  timezone: string;
+  currency: string;
   totalRooms: number;
-  occupiedRooms: number;
+  sellableRooms: number;
+  /** Rooms taken off sale by confirmed, in-house or unpaid-hold reservations. */
+  soldRooms: number;
+  /** Part of soldRooms that is an unpaid hold awaiting payment. */
+  heldRooms: number;
   availableRooms: number;
   occupancyPercent: number;
-  todayCheckIns: number;
-  todayCheckOuts: number;
-  todayBookings: number;
-  todayRevenue: number;
-  currency: string;
+  arrivals: number;
+  arrivalsPending: number;
+  departures: number;
+  departuresPending: number;
+  /** Minor units: room revenue (net of discount, excluding tax) of confirmed stays arriving on the date. */
+  arrivalsRevenue: number;
+  alerts: { severity: 'warning' | 'error'; code: string; message: string; count: number }[];
 }
 
 export interface RevenueReport {
@@ -535,6 +608,10 @@ export interface PublicAvailabilityItem {
     nightlyPrice: number;
     discountAmount: number;
     taxAmount: number;
+    /** Extra-guest charges already included in subtotal. */
+    extraGuestCharges: number;
+    /** Why the promo code was not applied to this plan (for example below its minimum booking value). */
+    promoProblem?: string;
     cancellationDescription: string;
   }[];
 }
@@ -558,6 +635,8 @@ export interface PublicBookingInput {
     country?: string;
   };
   promoCode?: string;
+  /** The total the guest was shown; the server refuses the booking (PRICE_CHANGED) if it now calculates a different one. */
+  expectedTotal?: number;
   specialRequests?: string;
 }
 

@@ -3,7 +3,7 @@ import type { AuthUser, RequestMeta } from '../../common/auth/auth-user';
 import { toUuid } from '../../common/utils';
 import { addDays, formatDateOnly, todayIn, toDateOnly } from '../../database/common/dates';
 import type { CancellationPolicy, Promotion, RatePlan } from '../../database/db-types';
-import { CancellationPenaltyType, PromotionType, RatePlanStatus, RatePlanType, SyncEntityType, SyncJobType } from '../../database/enums';
+import { CancellationPenaltyType, PromotionType, RatePlanStatus, RatePlanType, RedemptionStatus, SyncEntityType, SyncJobType } from '../../database/enums';
 import { ConflictError, DomainValidationError, NotFoundError } from '../../database/errors';
 import { Db, InjectDb, isUniqueViolation, j, runInTransaction } from '../../database/kysely';
 import { SyncJobService } from '../../database/services/sync-job.service';
@@ -128,8 +128,18 @@ export class RatesService {
 
   // ------------------------------------------------------------ promotions
 
-  listPromotions(propertyId: string): Promise<Promotion[]> {
-    return this.db.selectFrom('promotions').selectAll().where('propertyId', '=', propertyId).orderBy('validFrom', 'desc').execute();
+  async listPromotions(propertyId: string): Promise<(Promotion & { redeemed: number })[]> {
+    const rows = await this.db.selectFrom('promotions').selectAll().where('propertyId', '=', propertyId).orderBy('validFrom', 'desc').execute();
+    if (!rows.length) return [];
+    const counts = await this.db
+      .selectFrom('promotionRedemptions')
+      .select(['promotionId', (eb) => eb.fn.countAll<string>().as('n')])
+      .where('promotionId', 'in', rows.map((r) => r.id))
+      .where('status', '=', RedemptionStatus.ACTIVE)
+      .groupBy('promotionId')
+      .execute();
+    const byId = new Map(counts.map((c) => [c.promotionId, Number(c.n)]));
+    return rows.map((r) => ({ ...r, redeemed: byId.get(r.id) ?? 0 }));
   }
 
   async createPromotion(user: AuthUser, meta: RequestMeta, propertyId: string, dto: CreatePromotionDto): Promise<Promotion> {
@@ -150,6 +160,9 @@ export class RatesService {
           ...(dto.minNights !== undefined ? { minNights: dto.minNights } : {}),
           roomTypeIds: (dto.roomTypeIds ?? []).map((x) => toUuid(x, 'roomTypeIds')),
           ...(dto.active !== undefined ? { active: dto.active } : {}),
+          maxRedemptions: dto.maxRedemptions ?? null,
+          maxPerGuest: dto.maxPerGuest ?? null,
+          ...(dto.minBookingValue !== undefined ? { minBookingValue: dto.minBookingValue } : {}),
         })
         .returningAll()
         .executeTakeFirstOrThrow();

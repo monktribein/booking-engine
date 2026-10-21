@@ -25,6 +25,7 @@ Required in production (the process refuses to start otherwise, see `backend/src
 | `NEXT_PUBLIC_APP_URL` | build argument | yes | canonical site URL |
 | `API_INTERNAL_URL` | runtime | no | private API address for server-side rendering (compose: `http://api:3000`) |
 | `ALLOW_INSECURE_API_URL` | runtime | no | `true` only to run a production build against an `http` API locally |
+| `BFF_SHARED_SECRET` | runtime | no | **must equal the API's `BFF_SHARED_SECRET`** (32+ random chars, `openssl rand -hex 32`). The web server signs users in on their behalf; with this secret the API trusts the visitor address it forwards. Unset, every web login shares one rate limit and audit logs show the web server's address (the API logs a production warning at boot). |
 | `NEXT_PUBLIC_DEMO_MODE` | build | yes | development only; a production build **and** startup fail if `true` |
 
 Startup validation (`lib/config.ts`, `instrumentation.ts`) exits with code 1 and a JSON `fatal` line when: the API URL is missing/invalid/not https (without the explicit override) or has a path; demo mode is on; `API_INTERNAL_URL` is invalid; a `NEXT_PUBLIC_*` variable has a secret-looking name (`SECRET`, `PASSWORD`, `TOKEN`, `JWT`, `API_KEY`...). The browser-facing API URL is checked against the value compiled into the bundle. Mock data cannot be enabled in production: there is no code path that returns mock API data (guarded by tests), and demo mode only pre-fills an e-mail field.

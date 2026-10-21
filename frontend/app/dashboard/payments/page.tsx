@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Payment, PaymentStatus, Reservation, ReservationStatus } from '@/types';
+import { Payment, PaymentStatus, Reservation, ReservationPaymentStatus, ReservationStatus } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -17,6 +17,8 @@ import { formatCurrency } from '@/lib/utils/currency';
 import { errorMessage } from '@/lib/utils/errors';
 import { formatDate } from '@/lib/utils/dates';
 import { getPaymentStatusBadge } from '@/lib/utils/formatters';
+import { PaymentVisibilityPanel } from '@/components/payments/PaymentVisibilityPanel';
+import { describePayment, toneClass } from '@/lib/utils/payment-visibility';
 import { paymentsApi } from '@/lib/api/payments';
 import { reservationsApi } from '@/lib/api/reservations';
 import { CreditCard, Plus, RotateCcw } from 'lucide-react';
@@ -128,8 +130,11 @@ export default function PaymentsPage() {
                         <TableCell className="text-xs">{r.guest.firstName} {r.guest.lastName}</TableCell>
                         <TableCell className="text-xs font-semibold">{formatCurrency(r.total, r.currency)}</TableCell>
                         <TableCell className="text-xs">{formatCurrency(r.amountPaid ?? 0, r.currency)}</TableCell>
-                        <TableCell className="text-xs">{r.status === ReservationStatus.CANCELLED ? '-' : formatCurrency(balanceDue(r), r.currency)}</TableCell>
-                        <TableCell className="text-[11px] font-medium">{r.paymentStatus.replace(/_/g, ' ')}</TableCell>
+                        <TableCell className="text-xs">{r.status === ReservationStatus.CANCELLED ? '-' : describePayment(r).balanceDue.known ? formatCurrency(balanceDue(r), r.currency) : <span data-unavailable="true" className="text-slate-500">Unavailable</span>}</TableCell>
+                        <TableCell className="text-[11px] font-medium">
+                          <span className={toneClass(describePayment(r).summary.tone)} data-unavailable={describePayment(r).summary.label === 'Unavailable' ? 'true' : undefined}>{describePayment(r).summary.label}</span>
+                          {describePayment(r).isChannel && <span className="block text-[10px] font-normal text-slate-500">Channel booking</span>}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" aria-label={`Payments for ${r.code}`} onClick={() => { setError(null); setNotice(null); setSelected(r); }}>
                             <CreditCard className="h-3.5 w-3.5 mr-1" /> Open
@@ -152,11 +157,12 @@ export default function PaymentsPage() {
         </CardContent>
       </Card>
 
-      <Drawer isOpen={!!selected} onClose={() => setSelected(null)} title={selected ? `Payments • ${selected.code}` : 'Payments'} description={selected ? `Balance due ${formatCurrency(balanceDue(selected), selected.currency)}` : ''} width="lg">
+      <Drawer isOpen={!!selected} onClose={() => setSelected(null)} title={selected ? `Payments • ${selected.code}` : 'Payments'} description={selected ? (describePayment(selected).balanceDue.known ? `Balance due ${formatCurrency(balanceDue(selected), selected.currency)}` : 'Balance due unavailable') : ''} width="lg">
         {selected && (
           <div className="space-y-4">
             {error && !recordOpen && !refundTarget && <Alert variant="danger" message={error} onClose={() => setError(null)} />}
-            <Button size="sm" disabled={selected.status === ReservationStatus.CANCELLED || balanceDue(selected) === 0} onClick={() => { setError(null); setAmountMajor(''); setReference(''); setRecordOpen(true); }}>
+            <PaymentVisibilityPanel reservation={selected} />
+            <Button size="sm" disabled={selected.status === ReservationStatus.CANCELLED || balanceDue(selected) === 0 || selected.paymentStatus === ReservationPaymentStatus.CHANNEL_COLLECTED} onClick={() => { setError(null); setAmountMajor(''); setReference(''); setRecordOpen(true); }}>
               <Plus className="h-4 w-4 mr-1.5" /> Record Payment
             </Button>
             <QueryState query={payments} data={payments.data} isEmpty={(d) => d.length === 0} empty={<EmptyState title="No payments on this reservation" />} skeletonRows={2}>

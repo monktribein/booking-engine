@@ -26,6 +26,10 @@ async function bootstrap() {
   configureApp(app);
   const config = app.get(ConfigService<AppConfig, true>);
   const port = config.get('port', { infer: true });
+  if (process.env.NODE_ENV === 'production' && !process.env.BFF_SHARED_SECRET) {
+    // Not fatal (API-only deployments exist), but a web app in front of this API would share ONE login rate limit between all users.
+    new Logger('Bootstrap').warn('BFF_SHARED_SECRET is unset: logins through the web app all appear to come from the web server, so they share one rate limit and audit logs show its address. Set the same 32+ character value on the API and the web app.');
+  }
   await app.listen(port, '0.0.0.0');
   new Logger('Bootstrap').log(`Tirvona API listening on :${port} (queue=${config.get('queue', { infer: true }).driver}, workers=${config.get('queue', { infer: true }).workersEnabled})`);
 }

@@ -225,10 +225,10 @@ export default function ChannelDetailPage() {
                                   <TableRow key={room.key}>
                                     <TableCell>
                                       <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{listing.name}</div>
-                                      <div className="font-mono text-[10px] text-slate-400">{listing.externalListingId}</div>
+                                      <div className="font-mono text-[10px] text-slate-500">{listing.externalListingId}</div>
                                     </TableCell>
                                     <TableCell className="text-xs font-medium">{room.name}</TableCell>
-                                    <TableCell className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">{m?.roomTypeName ?? <span className="text-slate-400 font-normal italic">Unmapped</span>}</TableCell>
+                                    <TableCell className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">{m?.roomTypeName ?? <span className="text-slate-500 font-normal italic">Unmapped</span>}</TableCell>
                                     <TableCell className="text-xs text-slate-500">{m ? `${m.rateMappings?.length ?? 0} mapped` : '-'}</TableCell>
                                     <TableCell>
                                       {m ? (

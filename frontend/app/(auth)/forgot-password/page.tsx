@@ -30,12 +30,12 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#FAF9F5] text-slate-900 font-sans antialiased selection:bg-[#c1d8f0] selection:text-slate-900">
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-[#FAF9F5] text-slate-900 font-sans antialiased selection:bg-[#c1d8f0] selection:text-slate-900">
       {/* Back to Login Link */}
       <div className="w-full max-w-md mb-4">
         <Link
           href="/login"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Sign In
         </Link>
@@ -65,9 +65,9 @@ export default function ForgotPasswordPage() {
         {/* Card */}
         <div className="rounded-3xl border border-stone-200/90 bg-white p-7 sm:p-8 shadow-xl shadow-stone-200/60 space-y-6">
           <div className="border-b border-stone-100 pb-4">
-            <h2 className="text-xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">
               Forgot Password
-            </h2>
+            </h1>
             <p className="text-xs text-slate-500 mt-1">
               We will send instructions to your inbox
             </p>
@@ -75,7 +75,7 @@ export default function ForgotPasswordPage() {
 
           {submitted ? (
             <div className="text-center py-4 space-y-3">
-              <CheckCircle2 className="h-10 w-10 text-emerald-600 mx-auto" />
+              <CheckCircle2 className="h-10 w-10 text-emerald-700 mx-auto" />
               <h4 className="font-bold text-sm text-slate-900">
                 Password Reset Email Sent
               </h4>
@@ -127,6 +127,6 @@ export default function ForgotPasswordPage() {
           )}
         </div>
       </motion.div>
-    </div>
+    </main>
   );
 }

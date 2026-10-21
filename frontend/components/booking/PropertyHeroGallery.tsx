@@ -69,7 +69,7 @@ export function PropertyHeroGallery({
           {/* Badges on Main Image */}
           <div className="absolute top-4 left-4 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/95 backdrop-blur-md px-3 py-1 text-xs font-semibold text-slate-800 border border-white/40">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
               Verified Ashram Stay
             </span>
             {locationText && (

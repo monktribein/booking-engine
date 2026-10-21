@@ -105,7 +105,7 @@ export function exampleRestDefinition(opts: { baseUrl: string; host: string }): 
       statusMap: { confirmed: 'RESERVATION_CREATED', modified: 'RESERVATION_MODIFIED', cancelled: 'RESERVATION_CANCELLED' },
       pricing: { mode: 'TOTAL', path: '$.total', unit: 'MAJOR' },
       dateFormat: 'YYYY-MM-DD',
-      paymentCollectedByChannel: true,
+      paymentCollection: 'CHANNEL', // an operator declaration; omit it when the provider's contract does not say who collects
     },
     webhook: {
       signature: { scheme: 'HMAC_SHA256', header: 'X-Acme-Signature', format: 'hex', signedPayload: 'TIMESTAMP.RAW_BODY', timestampHeader: 'X-Acme-Timestamp', toleranceSeconds: 300 },

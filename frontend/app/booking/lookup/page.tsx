@@ -57,7 +57,7 @@ export default function BookingLookupPage() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans py-12 px-4 sm:px-6">
       <div className="max-w-xl mx-auto space-y-6">
         <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 mb-2">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 mb-2">
             <ArrowLeft className="h-4 w-4" /> Home
           </Link>
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md mx-auto">
@@ -132,7 +132,7 @@ export default function BookingLookupPage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800 last:border-0">
-      <span className="text-slate-400">{label}</span>
+      <span className="text-slate-500">{label}</span>
       <span className="font-semibold text-slate-800 dark:text-slate-200 text-right">{value}</span>
     </div>
   );

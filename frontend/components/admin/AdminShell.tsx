@@ -82,7 +82,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 {isSuper ? 'Super admin' : 'Operations'}
               </div>
             </div>
-            <button onClick={() => void logout()} title="Sign Out" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 cursor-pointer">
+            <button onClick={() => void logout()} title="Sign Out" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 cursor-pointer">
               <LogOut className="h-4 w-4" />
             </button>
           </div>

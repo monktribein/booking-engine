@@ -80,7 +80,8 @@ describe('CSV booking import', () => {
     expect(res.body.data.rows.map((r: { status: string }) => r.status)).toEqual(['IMPORTED', 'IMPORTED', 'ERROR']);
     const rows = await t.db.selectFrom('reservations').selectAll().where('propertyId', '=', s.propertyId).where('source', '=', 'CSV_IMPORT').orderBy('externalReservationId').execute();
     expect(rows.map((r) => r.externalReservationId)).toEqual(['R-1', 'R-2']);
-    expect(rows[0]).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'UNPAID' });
+    // A CSV row says nothing about money: it is neither assumed unpaid nor paid.
+    expect(rows[0]).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'UNKNOWN', collectionModel: null, collectionSource: null, amountPaid: 0 });
     expect(Number(rows[0].total)).toBe(700050 + Math.round(700050 * 0.05)); // the stay price plus the property's tax
     expect(Number(rows[0].subtotal)).toBe(700050);
     const inv = await inventoryFor(t, owner.token, s, iso(5), iso(7));

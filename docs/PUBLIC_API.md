@@ -52,6 +52,8 @@ no e-mail, phone or address. A key always sees full details of the reservations 
 **Ownership.** Reservations that originate from a channel (`AIRBNB`, `BOOKING_COM`, `AGODA`, `MOCK`) belong to that channel:
 `PATCH` and `cancel` on them return `409 CHANNEL_OWNED_RESERVATION`. See INTEGRATION_GUIDE.md.
 
+**Payment status of channel reservations.** For a reservation that originates from a channel, `paymentStatus` can be `UNKNOWN`: the channel has not reported its payment and nobody recorded one in Tirvona. Treat it as "not known", never as paid or unpaid. `CHANNEL_COLLECTED` means a channel (or its configuration) states that the channel collects the payment, not that the guest has paid. The v1 API does not expose the provider-reported payout, commission or net-amount fields; see [PAYMENT_VISIBILITY.md](PAYMENT_VISIBILITY.md).
+
 **Approval.** Keys only work while the organization is `ACTIVE`. A pending, rejected or suspended partner gets
 `403 ORGANIZATION_NOT_APPROVED` / `ORGANIZATION_DISABLED`.
 

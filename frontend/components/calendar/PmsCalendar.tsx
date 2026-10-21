@@ -200,7 +200,7 @@ export function PmsCalendar() {
                       {dates.map((d) => (
                         <th key={d.toISOString()} scope="col" className={`min-w-[130px] px-2 py-2 text-center border-r border-slate-200/80 dark:border-slate-800 font-semibold ${isSameDay(d, today) ? 'bg-indigo-50/70 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 font-bold' : 'text-slate-600 dark:text-slate-400'}`}>
                           <div>{formatDateShort(d)}</div>
-                          <div className="text-[10px] font-normal text-slate-400">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                          <div className="text-[10px] font-normal text-slate-500">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
                         </th>
                       ))}
                     </tr>
@@ -214,7 +214,7 @@ export function PmsCalendar() {
                             <div className="flex items-center justify-between">
                               <div>
                                 <span className="font-bold text-slate-900 dark:text-slate-100">Room {room.roomNumber}</span>
-                                <span className="text-[10px] text-slate-400 block truncate max-w-[95px]">{roomType?.name ?? ''}</span>
+                                <span className="text-[10px] text-slate-500 block truncate max-w-[95px]">{roomType?.name ?? ''}</span>
                               </div>
                               <span
                                 title={room.status}

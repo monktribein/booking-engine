@@ -57,7 +57,7 @@ describe('dashboard screens render real data from the backend', () => {
   it('Dashboard home: property name, stat cards, channel list, recent reservations', async () => {
     mount(<DashboardHome />);
     expect(await screen.findByRole('heading', { name: 'Radha Ashram' }, T)).toBeInTheDocument();
-    expect(await screen.findByText('Total Rooms', undefined, T)).toBeInTheDocument();
+    expect(await screen.findByText('Arrivals Revenue', undefined, T)).toBeInTheDocument();
     expect(await screen.findByText('Mock OTA', undefined, T)).toBeInTheDocument();
     expect((await screen.findAllByText(/^TRV-/, undefined, T)).length).toBeGreaterThan(0);
   });
@@ -104,11 +104,13 @@ describe('dashboard screens render real data from the backend', () => {
     expect(await screen.findByText('Nightly Occupancy', undefined, T)).toBeInTheDocument();
   });
 
-  it('Channels: internal channels always on, unavailable OTAs flagged honestly', async () => {
+  it('Channels: built-in channels labelled built in, unavailable OTAs flagged honestly, nothing green without a sync', async () => {
     mount(<ChannelsPage />);
     expect(await screen.findByText('Mock OTA', undefined, T)).toBeInTheDocument();
     expect((await screen.findAllByText('Partner access needed', undefined, T)).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('Always on', undefined, T)).length).toBe(2);
+    expect((await screen.findAllByText('Built in', undefined, T)).length).toBe(1);
+    expect((await screen.findAllByText('Built in (marketplace)', undefined, T)).length).toBe(1);
+    expect(screen.queryByText('Synced')).not.toBeInTheDocument(); // the sandbox has never synchronised anything
   });
 
   it('Channel detail (MOCK): connect call to action when not connected', async () => {

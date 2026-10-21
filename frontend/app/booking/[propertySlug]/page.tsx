@@ -11,6 +11,7 @@ import { Alert } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/query-state';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { ApiError } from '@/lib/api/client';
 import { bookingEngineApi } from '@/lib/api/booking-engine';
 import { paymentsApi } from '@/lib/api/payments';
 import { openRazorpayCheckout, RazorpaySuccess } from '@/lib/payments/razorpay-checkout';
@@ -148,7 +149,7 @@ function Checkout() {
     setNotice(null);
     try {
       const key = idempotencyKeyFor(bookingPayload);
-      const result = await bookingEngineApi.createBooking(bookingPayload, key);
+      const result = await bookingEngineApi.createBooking({ ...bookingPayload, expectedTotal: plan.totalPrice }, key); // the total the guest is looking at
       setReservation(result.reservation);
       saveLastBooking({ code: result.reservation.reservationCode, email: bookingPayload.guest.email });
       if (result.reservation.status === ReservationStatus.CONFIRMED) {
@@ -164,7 +165,13 @@ function Checkout() {
       await openCheckout(result.payment);
     } catch (err) {
       setPhase('details'); // form values are kept; retrying reuses the same idempotency key
-      setError(errorMessage(err));
+      if (err instanceof ApiError && err.code === 'PRICE_CHANGED') {
+        // Nothing was held. Show the guest the price the server calculates now and let them decide.
+        await quote.refetch();
+        setError('The price changed while you were booking. The summary now shows the current total; please review it and reserve again.');
+      } else {
+        setError(errorMessage(err));
+      }
     } finally {
       lock.current = false;
     }
@@ -193,7 +200,7 @@ function Checkout() {
             <Sparkles className="h-4 w-4 text-indigo-600" aria-hidden="true" />
             <span className="font-bold text-sm">Secure Guest Checkout</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold">
             <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Payments by Razorpay
           </div>
         </div>
@@ -282,8 +289,9 @@ function Checkout() {
                 adults={adults}
                 childCount={children}
                 currency={property.data.currency}
-                nightly={plan.nightlyPrice}
                 subtotal={plan.subtotal}
+                extraGuestCharges={plan.extraGuestCharges}
+                promoProblem={plan.promoProblem}
                 discount={plan.discountAmount}
                 tax={plan.taxAmount}
                 total={plan.totalPrice}

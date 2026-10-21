@@ -33,6 +33,7 @@ import { PropertiesModule } from './modules/properties/properties.module';
 import { PublicApiModule } from './modules/public-api/public-api.module';
 import { RatesModule } from './modules/rates/rates.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { RetentionModule } from './modules/retention/retention.module';
 import { ReservationsModule } from './modules/reservations/reservations.module';
 import { RoomTypesModule } from './modules/room-types/room-types.module';
 import { RoomsModule } from './modules/rooms/rooms.module';
@@ -114,6 +115,7 @@ const boot = configuration();
     SyncModule,
     NotificationsModule,
     ReportsModule,
+    RetentionModule,
     AdminModule,
     SchedulerModule,
   ],

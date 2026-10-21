@@ -107,7 +107,7 @@ function Confirmation() {
   return (
     <Shell>
       <div className="text-center space-y-3">
-        <div className={`inline-flex h-16 w-16 items-center justify-center rounded-3xl shadow-md ${confirmed ? 'bg-emerald-100 text-emerald-600' : pending ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'}`}>
+        <div className={`inline-flex h-16 w-16 items-center justify-center rounded-3xl shadow-md ${confirmed ? 'bg-emerald-100 text-emerald-700' : pending ? 'bg-amber-100 text-amber-600' : 'bg-rose-100 text-rose-600'}`}>
           {confirmed ? <CheckCircle2 className="h-10 w-10" /> : pending ? <Clock className="h-10 w-10" /> : <XCircle className="h-10 w-10" />}
         </div>
         <h1 className="text-3xl font-extrabold tracking-tight">{confirmed ? 'Booking Confirmed' : pending ? 'Awaiting payment confirmation' : cancelled ? 'Booking cancelled or expired' : `Booking ${r.status.toLowerCase().replace('_', ' ')}`}</h1>
@@ -148,19 +148,19 @@ function Confirmation() {
             <div className="text-2xl font-black tracking-tight">{r.reservationCode}</div>
           </div>
           <div className="text-right">
-            <span className="text-[10px] text-slate-400 block">Total</span>
+            <span className="text-[10px] text-slate-500 block">Total</span>
             <div className="text-xl font-black text-emerald-400">{formatCurrency(r.total, r.currency)}</div>
-            <span className="text-[10px] text-slate-400">{r.paymentStatus.replace(/_/g, ' ')}</span>
+            <span className="text-[10px] text-slate-500">{r.paymentStatus.replace(/_/g, ' ')}</span>
           </div>
         </div>
         <CardContent className="p-6 sm:p-8 space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
             <div>
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Property</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Property</span>
               <span className="text-base font-bold flex items-center gap-1.5"><Building2 className="h-4 w-4 text-indigo-600 shrink-0" />{r.propertyName}</span>
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Rooms</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Rooms</span>
               {r.rooms.map((rm, i) => (
                 <div key={i}>
                   <span className="text-base font-bold flex items-center gap-1.5"><BedDouble className="h-4 w-4 text-indigo-600 shrink-0" />{rm.roomTypeName}</span>
@@ -171,17 +171,17 @@ function Confirmation() {
           </div>
           <div className="grid grid-cols-2 gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
             <div>
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Check-in</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Check-in</span>
               <span className="text-base font-extrabold">{formatDateShort(r.checkIn)}</span>
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Check-out</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Check-out</span>
               <span className="text-base font-extrabold">{formatDateShort(r.checkOut)}</span>
             </div>
           </div>
           <div className="text-xs space-y-1 text-slate-600">
             <div className="flex justify-between"><span>Room charges</span><span>{formatCurrency(r.subtotal, r.currency)}</span></div>
-            {r.discount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{formatCurrency(r.discount, r.currency)}</span></div>}
+            {r.discount > 0 && <div className="flex justify-between text-emerald-700"><span>Discount</span><span>-{formatCurrency(r.discount, r.currency)}</span></div>}
             <div className="flex justify-between"><span>Taxes</span><span>{formatCurrency(r.tax, r.currency)}</span></div>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">

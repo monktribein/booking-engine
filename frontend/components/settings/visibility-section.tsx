@@ -126,7 +126,7 @@ export function VisibilitySection({ propertyId, canManage, onNotice }: { propert
                   <ul className="space-y-1.5">
                     {v.requirements.map((r) => (
                       <li key={r.key} className="flex items-center gap-2">
-                        {r.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="done" /> : <Circle className="h-4 w-4 text-slate-300" aria-label="missing" />}
+                        {r.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-label="done" /> : <Circle className="h-4 w-4 text-slate-300" aria-label="missing" />}
                         <span className={r.ok ? 'text-slate-600 dark:text-slate-400' : 'font-medium text-slate-900 dark:text-slate-100'}>{r.label}</span>
                       </li>
                     ))}

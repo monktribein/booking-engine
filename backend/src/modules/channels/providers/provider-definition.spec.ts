@@ -144,8 +144,26 @@ describe('provider definition validation', () => {
       expect(paths(invalid((d) => delete d.webhook))).toContain('webhook');
     });
 
-    it('reservation mapping must say who collects the payment and how prices are given', () => {
-      expect(paths(invalid((d) => delete d.reservationMapping.paymentCollectedByChannel))).toContain('reservationMapping.paymentCollectedByChannel');
+    it('who collects the payment is optional (omitted = unknown), validated when given, and the legacy boolean still loads', () => {
+      expect(paths(invalid((d) => delete d.reservationMapping.paymentCollection))).toEqual([]);
+      expect(paths(invalid((d) => (d.reservationMapping.paymentCollection = 'OTA')))).toContain('reservationMapping.paymentCollection');
+      expect(paths(invalid((d) => { delete d.reservationMapping.paymentCollection; d.reservationMapping.paymentCollectedByChannel = true; }))).toEqual([]);
+      expect(paths(invalid((d) => (d.reservationMapping.paymentCollectedByChannel = false)))).toContain('reservationMapping.paymentCollectedByChannel'); // both given
+      expect(paths(invalid((d) => { delete d.reservationMapping.paymentCollection; d.reservationMapping.paymentCollectedByChannel = 'yes'; }))).toContain('reservationMapping.paymentCollectedByChannel');
+    });
+
+    it('provider payment fields are optional paths with mapped statuses, and a money path needs a unit', () => {
+      const ok = { statusPath: '$.payment.status', statusMap: { paid: 'PAID' }, payoutStatusPath: '$.payout.state', payoutStatusMap: { sent: 'COMPLETED' }, payoutDatePath: '$.payout.date', commissionPath: '$.fee', netAmountPath: '$.net', amountUnit: 'MAJOR' };
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = ok)))).toEqual([]);
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { ...ok, statusMap: { paid: 'SETTLED' } })))).toContain('reservationMapping.paymentFields.statusMap');
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { ...ok, payoutStatusMap: { x: 'PAID' } })))).toContain('reservationMapping.paymentFields.payoutStatusMap');
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { ...ok, amountUnit: undefined })))).toContain('reservationMapping.paymentFields.amountUnit');
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { statusMap: { paid: 'PAID' } })))).toContain('reservationMapping.paymentFields.statusMap');
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { ...ok, statusPath: 'not a path' })))).toContain('reservationMapping.paymentFields.statusPath');
+      expect(paths(invalid((d) => (d.reservationMapping.paymentFields = { ...ok, secret: 1 })))).toContain('reservationMapping.paymentFields.secret');
+    });
+
+    it('reservation mapping must say how prices are given', () => {
       expect(paths(invalid((d) => (d.reservationMapping.pricing.unit = 'EUROS')))).toContain('reservationMapping.pricing.unit');
       expect(paths(invalid((d) => (d.reservationMapping.statusMap = { x: 'DELETE_EVERYTHING' })))).toContain('reservationMapping.statusMap');
     });

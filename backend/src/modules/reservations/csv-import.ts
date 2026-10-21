@@ -255,7 +255,6 @@ export class CsvImportService {
               children,
               rooms: [{ roomTypeId: rt.id, ratePlanId: dto.ratePlanId ?? null, quantity: 1, nightlyRates: Array.from({ length: nights }, (_, i) => base + (i < rest ? 1 : 0)) }],
               specialRequests: get(ix.notes).slice(0, 1000) || undefined,
-              paymentCollectedByChannel: false,
               createdBy: user.userId,
               auditMetadata: { csvImport: true },
             });

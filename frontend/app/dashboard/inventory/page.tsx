@@ -172,7 +172,7 @@ export default function InventoryPage() {
                             {days.map((d) => (
                               <th key={formatISODate(d)} scope="col" className="p-3 text-center min-w-[110px] border-r border-stone-200/70 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
                                 <div>{formatDateShort(d)}</div>
-                                <div className="text-[10px] font-normal text-slate-400">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                                <div className="text-[10px] font-normal text-slate-500">{d.toLocaleDateString('en-US', { weekday: 'short' })}</div>
                               </th>
                             ))}
                           </tr>
@@ -197,7 +197,7 @@ export default function InventoryPage() {
                                       ) : (
                                         <span className="text-base font-black text-emerald-700 dark:text-emerald-400">{cell.available}</span>
                                       )}
-                                      <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">
                                         {cell.sold} sold • {cell.blocked} blk
                                       </div>
                                     </>
@@ -302,7 +302,7 @@ export default function InventoryPage() {
           {action === 'UNBLOCK' && (
             <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 p-4 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 text-xs space-y-2">
               <div className="flex items-center gap-2 font-bold text-sm">
-                <CheckCircle className="h-5 w-5 text-emerald-600" /> Re-open inventory
+                <CheckCircle className="h-5 w-5 text-emerald-700" /> Re-open inventory
               </div>
               <p>Sales resume for {targetDate}; remaining availability is synced to channels.</p>
             </div>

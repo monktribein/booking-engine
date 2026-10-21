@@ -261,7 +261,7 @@ describe('channels', () => {
     // follow the provider consent + callback redirects the way a browser would
     const consent = await fetch(authorizationUrl!, { redirect: 'manual' });
     const callback = await fetch(consent.headers.get('location')!, { redirect: 'manual' });
-    expect(callback.headers.get('location')).toMatch(/\/properties\/[0-9a-f]{24}\/channels\?connected=MOCK$/);
+    expect(callback.headers.get('location')).toMatch(/\/properties\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/channels\?connected=MOCK$/);
 
     const listings = await channelsApi.getListings(propertyId, 'MOCK');
     const hotel = listings.find((l) => l.externalListingId === 'MOCK-HOTEL-1')!;
@@ -306,9 +306,10 @@ describe('reports', () => {
     const rev = await reportsApi.getRevenueReport(propertyId, day(-30), day(60));
     expect(rev.bySource.length).toBeGreaterThan(0);
     expect(rev.bySource.reduce((a, s) => a + s.revenue, 0)).toBe(rev.totalRevenue);
-    const dash = await reportsApi.getDashboardStats(propertyId, 'INR');
+    const dash = await reportsApi.getDashboardStats(propertyId);
     expect(dash.totalRooms).toBeGreaterThan(0);
-    expect(dash.occupiedRooms + dash.availableRooms).toBeLessThanOrEqual(dash.totalRooms);
+    expect(dash.soldRooms + dash.availableRooms).toBeLessThanOrEqual(dash.sellableRooms);
+    expect(dash.currency).toBe('INR');
   });
 });
 

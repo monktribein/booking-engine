@@ -9,24 +9,27 @@ test.describe('dashboard', () => {
   test('loads the real property, stats, channels and reservations', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Radha Ashram' })).toBeVisible();
-    await expect(page.getByText('Total Rooms')).toBeVisible();
+    await expect(page.getByText('Arrivals Revenue')).toBeVisible();
+    await expect(page.getByLabel('Date')).toHaveValue(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/); // the property's own day, chosen by the server
     await expect(page.getByText('Mock OTA')).toBeVisible();
+    // Channels without an adapter are never shown as connected or synced.
+    await expect(page.getByText('Partner access needed').first()).toBeVisible();
     await expect(page.getByText(/^TRV-/).first()).toBeVisible();
   });
 
   test('a failing API shows an error with retry, not sample numbers; retry recovers', async ({ page }) => {
     let fail = true;
-    await page.route('**/reports/occupancy*', (route) =>
+    await page.route('**/reports/dashboard*', (route) =>
       fail ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: 'stack trace /srv/secret.js' } }) }) : route.continue()
     );
     await page.goto('/dashboard');
     const alert = appAlert(page).filter({ hasText: /server error/i });
     await expect(alert).toBeVisible();
-    await expect(page.getByText('Total Rooms')).toHaveCount(0); // no stat cards, hence no fabricated numbers
+    await expect(page.getByText('Arrivals Revenue')).toHaveCount(0); // no stat cards, hence no fabricated numbers
     await expect(page.getByText('secret.js')).toHaveCount(0); // server internals are never shown
     fail = false;
     await alert.getByRole('button', { name: /try again/i }).click();
-    await expect(page.getByText('Total Rooms')).toBeVisible();
+    await expect(page.getByText('Arrivals Revenue')).toBeVisible();
   });
 
   test('the reservations list is not replaced by sample data when the API is down', async ({ page }) => {
@@ -45,7 +48,8 @@ test.describe('dashboard', () => {
   test('creates a reservation through the form and finds it in the list', async ({ page }) => {
     const name = `E2E${Date.now().toString(36)}`;
     await page.goto('/dashboard/reservations');
-    await page.getByRole('button', { name: /new reservation/i }).click();
+    // The page header and the layout both offer a "New Reservation" button; use the one in the page body.
+    await page.getByRole('main').getByRole('button', { name: /new reservation/i }).click();
     const dialog = page.getByRole('dialog').or(page.locator('form').filter({ hasText: 'Create New Reservation' }));
     await page.getByLabel('First Name *').fill(name);
     await page.getByLabel('Last Name').fill('Tester');

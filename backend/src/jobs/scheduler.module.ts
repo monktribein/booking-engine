@@ -10,6 +10,7 @@ import { Db, InjectDb } from '../database/kysely';
 import { InventoryService } from '../database/services/inventory.service';
 import { ReservationService } from '../database/services/reservation.service';
 import { d } from '../database/sql';
+import { organizationsWithActivePolicy, runRetention } from '../database/services/retention';
 import { ChannelAdapterRegistry } from '../modules/channels/channel-registry';
 import { ChannelsModule } from '../modules/channels/channels.module';
 import { ReconciliationService } from '../modules/channels/providers/reconciliation.service';
@@ -54,6 +55,8 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
     { name: 'channel-reservation-pull', everyMs: 60_000, run: () => this.queueReservationPulls() },
     // PostgreSQL has no TTL indexes: expired sessions, reset tokens and old logs are deleted here.
     { name: 'purge-expired', everyMs: 3600_000, runAtStart: true, run: () => this.purgeExpired() },
+    // Personal-data retention: off unless RETENTION_JOB_ENABLED=true, and then only for organizations whose owner approved a policy.
+    { name: 'data-retention', everyMs: 24 * 3600_000, run: () => this.dataRetention() },
   ];
 
   onApplicationBootstrap() {
@@ -156,6 +159,18 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
       queued++;
     }
     return queued;
+  }
+
+  /** Applies every approved retention policy, one batch per organization per run. Counts only are logged. */
+  async dataRetention() {
+    if (process.env.RETENTION_JOB_ENABLED !== 'true') return [];
+    const results = [];
+    for (const organizationId of await organizationsWithActivePolicy(this.db)) {
+      const r = await runRetention(this.db, organizationId, { dryRun: false, triggeredBy: 'scheduler' });
+      this.logger.log(`data retention ${organizationId}: ${JSON.stringify(r.summary)}${r.moreGuests ? ' (more guests remain)' : ''}`);
+      results.push(r);
+    }
+    return results;
   }
 
   /**

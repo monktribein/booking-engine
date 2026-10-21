@@ -64,7 +64,7 @@ function ResetForm() {
               <Alert variant="danger" title="Link incomplete" message="This reset link is missing its token. Request a new one." />
             ) : done ? (
               <div className="text-center py-4 space-y-3">
-                <CheckCircle2 className="h-10 w-10 text-emerald-600 mx-auto" aria-hidden="true" />
+                <CheckCircle2 className="h-10 w-10 text-emerald-700 mx-auto" aria-hidden="true" />
                 <h4 className="font-bold text-sm">Password updated</h4>
                 <p className="text-xs text-slate-500">You have been signed out everywhere. Sign in with your new password.</p>
                 <Link href="/login"><Button size="sm">Go to sign in</Button></Link>

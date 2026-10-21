@@ -30,7 +30,7 @@ export function Tabs({ items, activeId, onChange, className }: TabsProps) {
               'inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap',
               isActive
                 ? 'border-slate-900 text-slate-900 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-stone-300'
+                : 'border-transparent text-slate-600 hover:text-slate-800 hover:border-stone-300'
             )}
           >
             {tab.icon}

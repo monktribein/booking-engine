@@ -221,6 +221,11 @@
             "example": 0,
             "type": "number"
           },
+          "expectedTotal": {
+            "description": "The total (minor units, after any discount) the guest was shown. If the server now calculates a different total the booking is refused with PRICE_CHANGED and nothing is held.",
+            "example": 735000,
+            "type": "number"
+          },
           "externalReference": {
             "description": "Your own id for this booking, unique per property. Sending the same reference again returns the original booking (HTTP 200); the same reference with different content is rejected with 422 EXTERNAL_REFERENCE_REUSED. It is also returned on reads, in webhooks, and can be used to filter the reservation list.",
             "example": "PMS-48213",
@@ -621,6 +626,10 @@
           "discount": {
             "type": "number"
           },
+          "extraGuestCharges": {
+            "description": "Extra-guest charges included in subtotal",
+            "type": "number"
+          },
           "mealPlan": {
             "type": "string"
           },
@@ -628,7 +637,19 @@
             "type": "string"
           },
           "nightly": {
+            "description": "Average nightly price per room including extra-guest charges",
             "type": "number"
+          },
+          "nightlyRates": {
+            "description": "Per-night price of the first room: { date, amount, rate, extra, ruleId? }. amount = rate + extra and is what is frozen on the booking.",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "promoProblem": {
+            "description": "Set instead of a discount when the promo code does not apply to this plan (for example below its minimum booking value)",
+            "type": "string"
           },
           "ratePlanId": {
             "type": "string"
@@ -650,6 +671,8 @@
           "mealPlan",
           "cancellationPolicy",
           "nightly",
+          "nightlyRates",
+          "extraGuestCharges",
           "subtotal",
           "tax",
           "total"

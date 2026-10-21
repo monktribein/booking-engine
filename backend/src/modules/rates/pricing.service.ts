@@ -1,36 +1,37 @@
 import { Injectable } from '@nestjs/common';
-import { nightsBetween } from '../../database/common/dates';
-import { percentOf } from '../../database/common/money';
 import type { Promotion } from '../../database/db-types';
-import { PromotionType } from '../../database/enums';
-import { DomainError } from '../../database/errors';
 import { Db, InjectDb } from '../../database/kysely';
+import { PromoLine, assertMinimumValue, assertWithinLimits, discountFor, findPromotion } from '../../database/services/promotion';
 
-export interface QuoteLine {
-  roomTypeId: string;
-  /** subtotal + tax of the line, minor units. */
-  total: number;
-}
+export type QuoteLine = PromoLine;
 
-/** Promotion rules for the booking engine. The discount applies to the post-tax total of eligible room types (reservation.discount semantics). */
+/**
+ * Promotion rules for the booking engine's price previews. The binding checks (usage limits under a row lock, per-guest limits,
+ * the redemption record) run inside the booking transaction in ReservationService; this service only answers "would this code
+ * apply?" for a quote. The discount applies to the post-tax total of eligible room types (reservation.discount semantics).
+ */
 @Injectable()
 export class PricingService {
   constructor(@InjectDb() private readonly db: Db) {}
 
+  /** Throws PROMO_INVALID with the reason: unknown, inactive, wrong dates, too few nights, or its usage limit is used up. */
   async resolvePromotion(propertyId: string, code: string, checkIn: Date, checkOut: Date): Promise<Promotion> {
-    const promo = await this.db.selectFrom('promotions').selectAll().where('propertyId', '=', propertyId).where('code', '=', code.trim().toUpperCase()).where('active', '=', true).executeTakeFirst();
-    const invalid = (why: string) => new DomainError('PROMO_INVALID', `Promo code is not valid: ${why}`);
-    if (!promo) throw invalid('unknown code');
-    if (checkIn < promo.validFrom || checkIn >= promo.validTo) throw invalid('not valid for these dates');
-    if (nightsBetween(checkIn, checkOut) < promo.minNights) throw invalid(`requires at least ${promo.minNights} nights`);
+    const promo = await findPromotion(this.db, propertyId, code, checkIn, checkOut);
+    await assertWithinLimits(this.db, promo);
     return promo;
   }
 
   static discountFor(promo: Pick<Promotion, 'type' | 'value' | 'roomTypeIds'>, lines: QuoteLine[]): number {
-    const eligible = lines
-      .filter((l) => !promo.roomTypeIds.length || promo.roomTypeIds.includes(l.roomTypeId))
-      .reduce((a, l) => a + l.total, 0);
-    if (!eligible) return 0;
-    return promo.type === PromotionType.PERCENTAGE ? percentOf(eligible, promo.value) : Math.min(promo.value, eligible);
+    return discountFor(promo, lines);
+  }
+
+  /** The reason a quoted line does not meet the code's minimum booking value, or undefined if it does. */
+  static minimumValueProblem(promo: Pick<Promotion, 'minBookingValue' | 'roomTypeIds'>, lines: QuoteLine[]): string | undefined {
+    try {
+      assertMinimumValue(promo, lines);
+      return undefined;
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
 }

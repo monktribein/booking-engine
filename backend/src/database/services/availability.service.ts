@@ -2,13 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { MAX_STAY_NIGHTS } from '../constants';
 import { DateInput, addDays, eachNight, formatDateOnly, toDateOnly } from '../common/dates';
-import { percentOf } from '../common/money';
+import { percentOf, sum } from '../common/money';
+import { NightPrice, allocateGuests, baseOccupancyOf, priceRoomNights } from '../common/pricing';
 import { RestrictionRow, evaluateRestrictions } from '../common/restrictions';
 import type { CancellationPolicy } from '../db-types';
 import { InventoryBlockStatus, RatePlanStatus, ReservationStatus, RoomTypeStatus } from '../enums';
 import { DomainValidationError, NotFoundError } from '../errors';
 import { Db, InjectDb } from '../kysely';
 import { d } from '../sql';
+import { loadRateRules } from './rate-engine';
 
 type Id = string;
 
@@ -35,7 +37,12 @@ export interface AvailableRoomType {
     name: string;
     mealPlan: string;
     cancellationPolicy: CancellationPolicy;
+    /** Average nightly price per room including any extra-guest charge: subtotal / (nights x rooms), rounded. */
     nightly: number;
+    /** Per-night price of the first room (rate + extra-guest charge), exactly as it will be frozen on the booking. */
+    nightlyRates: NightPrice[];
+    /** Extra-guest charges included in `subtotal`, all rooms and nights. */
+    extraGuestCharges: number;
     subtotal: number;
     tax: number;
     total: number;
@@ -83,7 +90,7 @@ export class AvailabilityService {
     const ids = grouped.map((g) => g.roomTypeId);
 
     const [roomTypes, restrictions, plans] = await Promise.all([
-      this.db.selectFrom('roomTypes').select(['id', 'name', 'maxOccupancy', 'sortOrder', 'basePrice']).where('id', 'in', ids).where('status', '=', RoomTypeStatus.ACTIVE).execute(),
+      this.db.selectFrom('roomTypes').select(['id', 'name', 'maxOccupancy', 'sortOrder', 'basePrice', 'baseOccupancy', 'extraAdultCharge', 'extraChildCharge']).where('id', 'in', ids).where('status', '=', RoomTypeStatus.ACTIVE).execute(),
       this.db
         .selectFrom('restrictions')
         .select(['roomTypeId', 'date', 'minimumStay', 'maximumStay', 'closed', 'closedToArrival', 'closedToDeparture', 'stopSell'])
@@ -102,6 +109,8 @@ export class AvailabilityService {
         .execute(),
     ]);
 
+    const rules = await loadRateRules(this.db, property.id, ids, checkIn, checkOut);
+    const nightDates = eachNight(checkIn, checkOut);
     const groupById = new Map(grouped.map((g) => [g.roomTypeId, g]));
     return roomTypes
       .sort((a, b) => a.sortOrder - b.sortOrder || a.basePrice - b.basePrice)
@@ -123,15 +132,24 @@ export class AvailabilityService {
           bookable: reasons.length === 0,
           reasons,
           ratePlans: ratePlans.map((rp) => {
-            const subtotal = rp.basePrice * nights * rooms;
-            const tax = percentOf(rp.basePrice * nights, property.taxPercent) * rooms;
+            // The same calculation the booking transaction runs: rules per night, extra guests per room, tax per room.
+            const terms = { baseOccupancy: rt.baseOccupancy, maxOccupancy: rt.maxOccupancy, extraAdultCharge: rt.extraAdultCharge, extraChildCharge: rt.extraChildCharge };
+            const party = allocateGuests(Array.from({ length: rooms }, () => ({ baseOccupancy: baseOccupancyOf(terms), maxOccupancy: rt.maxOccupancy })), q.adults, q.children ?? 0);
+            const perRoom = party.map((guests) =>
+              priceRoomNights({ nights: nightDates, basePrice: rp.basePrice, ratePlanId: rp.id, rules: rules.filter((r) => r.roomTypeId === rt.id), guests, terms }),
+            );
+            const roomSubtotals = perRoom.map((nightsOfRoom) => sum(nightsOfRoom.map((n) => n.amount)));
+            const subtotal = sum(roomSubtotals);
+            const tax = sum(roomSubtotals.map((x) => percentOf(x, property.taxPercent)));
             return {
               ratePlanId: rp.id,
               code: rp.code,
               name: rp.name,
               mealPlan: rp.mealPlan,
               cancellationPolicy: rp.cancellationPolicy,
-              nightly: rp.basePrice,
+              nightly: Math.round(subtotal / (nights * rooms)),
+              nightlyRates: perRoom[0],
+              extraGuestCharges: sum(perRoom.flatMap((r) => r.map((n) => n.extra))),
               subtotal,
               tax,
               total: subtotal + tax,

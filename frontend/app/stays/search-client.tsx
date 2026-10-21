@@ -56,7 +56,7 @@ function PropertyCard({ p, stayQuery }: { p: PublicPropertySearchItem; stayQuery
           // eslint-disable-next-line @next/next/no-img-element -- property photos are arbitrary remote URLs
           <img src={p.image.url} alt={p.image.caption || p.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs font-semibold text-slate-400">No photo yet</div>
+          <div className="flex h-full items-center justify-center text-xs font-semibold text-slate-500">No photo yet</div>
         )}
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
@@ -79,7 +79,7 @@ function PropertyCard({ p, stayQuery }: { p: PublicPropertySearchItem; stayQuery
         )}
         <div className="mt-auto flex items-end justify-between pt-2">
           <div>
-            <span className="block text-[11px] font-medium text-slate-400">{hasStay ? 'From' : 'Starting from'}</span>
+            <span className="block text-[11px] font-medium text-slate-500">{hasStay ? 'From' : 'Starting from'}</span>
             <span className="text-lg font-black text-slate-900 dark:text-slate-100">{formatCurrency(hasStay ? p.availableFromNightly : p.startingFromPrice, p.currency)}</span>
             <span className="text-xs text-slate-500"> / night</span>
           </div>

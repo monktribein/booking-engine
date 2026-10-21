@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useId, useRef } from 'react';
 import { cn } from '@/lib/utils/cn';
+import { useModalFocus } from '@/lib/hooks/use-modal-focus';
 import { X } from 'lucide-react';
 
 export interface DialogProps {
@@ -21,19 +22,10 @@ export function Dialog({
   children,
   maxWidth = 'md',
 }: DialogProps) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const descId = useId();
+  useModalFocus(isOpen, onClose, ref);
 
   if (!isOpen) return null;
 
@@ -54,28 +46,33 @@ export function Dialog({
         aria-hidden="true"
       />
 
-      {/* Modal Dialog Card */}
+      {/* Modal Dialog Card. Scrolls inside itself on short screens, so its buttons are never pushed out of the viewport. */}
       <div
+        ref={ref}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={title && description ? descId : undefined}
+        tabIndex={-1}
         className={cn(
-          'relative w-full rounded-3xl bg-white p-6 sm:p-7 shadow-2xl transition-all border border-stone-200 z-10',
+          'relative z-10 max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-3xl bg-white p-6 sm:p-7 shadow-2xl outline-none transition-all border border-stone-200',
           maxWidths[maxWidth]
         )}
       >
         <button
+          type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-stone-100 hover:text-slate-700 transition-colors cursor-pointer"
+          className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-500 hover:bg-stone-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-indigo-600 transition-colors cursor-pointer"
         >
-          <X className="h-5 w-5" />
+          <X className="h-5 w-5" aria-hidden="true" />
           <span className="sr-only">Close</span>
         </button>
 
         {title && (
           <div className="mb-4 pr-6">
-            <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+            <h2 id={titleId} className="text-lg font-bold text-slate-900">{title}</h2>
             {description && (
-              <p className="mt-1 text-sm text-slate-500">{description}</p>
+              <p id={descId} className="mt-1 text-sm text-slate-500">{description}</p>
             )}
           </div>
         )}

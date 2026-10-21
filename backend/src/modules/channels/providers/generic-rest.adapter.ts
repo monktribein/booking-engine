@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { ChannelError } from '../../../database/errors';
+import type { ChannelPaymentInfo } from '../../../database/common/payment-info';
 import type { NormalizedReservationEvent } from '../../../database/services/webhook.service';
 import type {
   AvailabilityUpdate,
@@ -633,7 +634,7 @@ export class GenericRestAdapter implements ChannelAdapter {
           },
           rooms: [{ externalRoomId: f.externalRoomId === undefined || f.externalRoomId === null ? null : String(f.externalRoomId), externalRatePlanId: f.externalRatePlanId ? String(f.externalRatePlanId) : undefined, quantity: f.quantity ? Math.max(1, Number(f.quantity)) : 1, nightlyRates }],
           currency: String(need('currency')).toUpperCase(),
-          paymentCollectedByChannel: m.paymentCollectedByChannel,
+          payment: this.paymentInfo(raw),
           specialRequests: f.specialRequests ? String(f.specialRequests).slice(0, 1000) : undefined,
         };
         events.push(event);
@@ -644,6 +645,53 @@ export class GenericRestAdapter implements ChannelAdapter {
     });
     if (skipped.length) this.logger.warn(`${this.channel}: skipped ${skipped.length} reservation(s): ${skipped.slice(0, 5).map((s) => `${s.externalReservationId ?? '?'}: ${s.reason}`).join('; ')}`);
     return { events, skipped, newestUpdatedAt: newest };
+  }
+
+  /**
+   * Payment data for one booking. Only what the provider's own response contains (through the operator's paths) or the operator
+   * explicitly declared is returned; nothing is defaulted. Returns undefined when nothing is known.
+   */
+  private paymentInfo(raw: unknown): ChannelPaymentInfo | undefined {
+    const m = this.def.reservationMapping!;
+    const info: ChannelPaymentInfo = {};
+    const declared = m.paymentCollection ?? (m.paymentCollectedByChannel === undefined ? undefined : m.paymentCollectedByChannel ? 'CHANNEL' : 'PROPERTY');
+    if (declared) {
+      info.collectedBy = declared;
+      info.collectionSource = 'OPERATOR_CONFIG';
+    }
+    const f = m.paymentFields;
+    if (f) {
+      const word = (path?: string): string | undefined => {
+        if (!path) return undefined;
+        const v = extractOne(raw, path);
+        return typeof v === 'string' || typeof v === 'number' ? String(v) : undefined;
+      };
+      const money = (path?: string): number | undefined => {
+        if (!path) return undefined;
+        const v = extractOne(raw, path);
+        const n = typeof v === 'string' || typeof v === 'number' ? Number(v) : NaN;
+        if (!Number.isFinite(n) || n < 0) return undefined;
+        return f.amountUnit === 'MAJOR' ? Math.round(n * 100) : Math.round(n);
+      };
+      const status = word(f.statusPath);
+      if (status !== undefined) {
+        info.providerStatusRaw = status;
+        info.providerStatus = f.statusMap?.[status];
+      }
+      const payout = word(f.payoutStatusPath);
+      if (payout !== undefined) {
+        info.payoutStatusRaw = payout;
+        info.payoutStatus = f.payoutStatusMap?.[payout];
+      }
+      const dateWord = word(f.payoutDatePath);
+      if (dateWord !== undefined) {
+        const d = new Date(dateWord);
+        if (!Number.isNaN(d.getTime())) info.payoutDate = d;
+      }
+      info.commissionAmount = money(f.commissionPath);
+      info.netAmount = money(f.netAmountPath);
+    }
+    return Object.values(info).some((v) => v !== undefined) ? info : undefined;
   }
 
   private nightly(raw: unknown, nights: number): number[] {

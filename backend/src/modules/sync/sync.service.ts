@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { addDays, eachNight, formatDateOnly, todayIn } from '../../database/common/dates';
+import { nightlyRate, pickRule } from '../../database/common/pricing';
+import { loadRateRules } from '../../database/services/rate-engine';
 import { redactText } from '../channels/providers/provider-engine';
 import { j } from '../../database/kysely';
 import type { NormalizedReservationEvent } from '../../database/services/webhook.service';
@@ -233,21 +235,26 @@ export class SyncService {
       : [];
     const rpById = new Map(ratePlans.map((rp) => [rp.id, rp]));
     const nights = eachNight(w.from, w.to);
+    // What a channel is told must be what a guest of the direct engine would be charged: the same per-night rules.
+    const rules = await loadRateRules(this.db, job.propertyId, [...new Set(targets.map((t) => t.mapping.roomTypeId))], w.from, w.to);
     return targets.flatMap((t) =>
       rateMappings
         .filter((rm) => rm.channelRoomMappingId === t.mapping.id)
         .flatMap((rm) => {
           const rp = rpById.get(rm.ratePlanId);
           if (!rp) return [];
-          const price = ChannelMappingService.channelPrice(rp.basePrice, rm);
-          return nights.map((d) => ({
-            externalListingId: t.externalListingId,
-            externalRoomId: t.mapping.externalRoomId,
-            externalRatePlanId: rm.externalRatePlanId,
-            date: formatDateOnly(d),
-            price,
-            currency: rp.currency,
-          }));
+          return nights.map((d) => {
+            const rule = pickRule(rules.filter((x) => x.roomTypeId === t.mapping.roomTypeId), d, rp.id);
+            const price = ChannelMappingService.channelPrice(nightlyRate(rp.basePrice, rule), rm);
+            return {
+              externalListingId: t.externalListingId,
+              externalRoomId: t.mapping.externalRoomId,
+              externalRatePlanId: rm.externalRatePlanId,
+              date: formatDateOnly(d),
+              price,
+              currency: rp.currency,
+            };
+          });
         }),
     );
   }
@@ -357,7 +364,6 @@ export class SyncService {
               guest: { firstName: 'Calendar', lastName: 'block' },
               rooms: [],
               currency: 'INR',
-              paymentCollectedByChannel: true,
             }));
           }
         }

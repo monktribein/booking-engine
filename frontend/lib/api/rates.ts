@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { mapPromotion, mapRatePlan, promotionBody, ratePlanBody } from './mappers';
-import { Promotion, RatePlan } from '@/types';
+import { Promotion, RateCalendarDay, RatePlan, RateRule } from '@/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const ratesApi = {
@@ -22,6 +22,26 @@ export const ratesApi = {
 
   async archiveRatePlan(id: string): Promise<RatePlan> {
     return mapRatePlan(await apiClient<any>(`/rate-plans/${id}`, { method: 'DELETE' }));
+  },
+
+  listRateRules(propertyId: string, roomTypeId?: string): Promise<RateRule[]> {
+    return apiClient<RateRule[]>(`/properties/${propertyId}/rate-rules`, { params: roomTypeId ? { roomTypeId } : {} });
+  },
+
+  createRateRule(propertyId: string, body: Record<string, unknown>): Promise<RateRule> {
+    return apiClient<RateRule>(`/properties/${propertyId}/rate-rules`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  updateRateRule(id: string, body: Record<string, unknown>): Promise<RateRule> {
+    return apiClient<RateRule>(`/rate-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  deactivateRateRule(id: string): Promise<RateRule> {
+    return apiClient<RateRule>(`/rate-rules/${id}`, { method: 'DELETE' });
+  },
+
+  rateCalendar(propertyId: string, params: { roomTypeId: string; ratePlanId?: string; from: string; to: string }): Promise<RateCalendarDay[]> {
+    return apiClient<RateCalendarDay[]>(`/properties/${propertyId}/rate-calendar`, { params });
   },
 
   async listPromotions(propertyId: string): Promise<Promotion[]> {

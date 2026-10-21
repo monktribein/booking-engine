@@ -48,6 +48,8 @@ export function getRoomStatusBadge(status: RoomStatus): {
       return { bg: 'bg-rose-50 dark:bg-rose-950/30', text: 'text-rose-700 dark:text-rose-400', dot: 'bg-rose-500', label: 'Maintenance' };
     case RoomStatus.BLOCKED:
       return { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300', dot: 'bg-slate-500', label: 'Blocked' };
+    case RoomStatus.RETIRED:
+      return { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-500 dark:text-slate-400', dot: 'bg-slate-300', label: 'Retired' };
     default:
       return { bg: 'bg-slate-100', text: 'text-slate-700', dot: 'bg-slate-400', label: status };
   }
@@ -123,5 +125,47 @@ export function getPaymentStatusBadge(status: PaymentStatus): {
       return { bg: 'bg-indigo-50 text-indigo-700 border-indigo-200', text: 'text-indigo-700', label: 'Partially Refunded' };
     default:
       return { bg: 'bg-slate-100 text-slate-700 border-slate-200', text: 'text-slate-700', label: status };
+  }
+}
+
+export type ChannelHealthState = 'internal' | 'ok' | 'never-synced' | 'error' | 'expired' | 'connecting' | 'unavailable' | 'disconnected';
+
+export interface ChannelHealth {
+  state: ChannelHealthState;
+  label: string;
+  tone: 'green' | 'amber' | 'red' | 'blue' | 'slate';
+}
+
+/**
+ * The one definition of a channel's health, shared by the dashboard and the Channel Manager. "Synced" (green) needs evidence:
+ * a connected channel with a recorded successful synchronisation and no standing error. A channel that merely exists, is
+ * connected but has never synchronised, or has no adapter (partner access needed) is never green.
+ * lastSyncAt is written by the sync worker only when a job succeeds.
+ */
+export function getChannelHealth(ch: {
+  channel: string;
+  internal?: boolean;
+  available?: boolean;
+  status: ChannelConnectionStatus;
+  lastSyncAt?: string;
+  lastError?: string;
+}): ChannelHealth {
+  if (ch.internal) {
+    return { state: 'internal', label: ch.channel === ChannelCode.TIRVONA ? 'Built in (marketplace)' : 'Built in', tone: 'slate' };
+  }
+  if (ch.available === false) return { state: 'unavailable', label: 'Partner access needed', tone: 'amber' };
+  switch (ch.status) {
+    case ChannelConnectionStatus.ERROR:
+      return { state: 'error', label: 'Error', tone: 'red' };
+    case ChannelConnectionStatus.EXPIRED:
+      return { state: 'expired', label: 'Credentials expired', tone: 'amber' };
+    case ChannelConnectionStatus.CONNECTING:
+      return { state: 'connecting', label: 'Awaiting authorization', tone: 'blue' };
+    case ChannelConnectionStatus.CONNECTED:
+      if (ch.lastError) return { state: 'error', label: 'Error', tone: 'red' };
+      if (!ch.lastSyncAt) return { state: 'never-synced', label: 'Connected, never synced', tone: 'amber' };
+      return { state: 'ok', label: 'Synced', tone: 'green' };
+    default:
+      return { state: 'disconnected', label: 'Not connected', tone: 'slate' };
   }
 }

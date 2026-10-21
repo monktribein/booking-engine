@@ -198,7 +198,6 @@ export class IcalAdapter implements ChannelAdapter {
           guest: { firstName: 'Calendar', lastName: 'block' },
           rooms: [{ externalRoomId: null, quantity: 1, nightlyRates: Array.from({ length: nights }, () => 0) }],
           currency: this.ctx.currency,
-          paymentCollectedByChannel: true,
           specialRequests: e.summary ? `iCal: ${e.summary}`.slice(0, 200) : 'iCal calendar block',
         });
       }

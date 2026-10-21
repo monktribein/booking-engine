@@ -21,6 +21,11 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:reset": "tsx scripts/seed.ts --reset",
     "db:verify": "tsx scripts/verify.ts",
+    "db:check": "node dist/scripts/db-check.js",
+    "db:check:dev": "tsx scripts/db-check.ts",
+    "retention:dry-run": "node dist/scripts/retention.js --all",
+    "retention:dry-run:dev": "tsx scripts/retention.ts",
+    "retention": "node dist/scripts/retention.js",
     "sandbox": "tsx scripts/dev-sandbox.ts",
     "test:bullmq": "node scripts/test-bullmq.cjs",
     "drill:restore": "tsx scripts/restore-drill.ts",
@@ -70,5 +75,10 @@
     "ts-jest": "^29.4.14",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "5.5.0"
+    }
   }
 }
